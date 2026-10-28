@@ -1,0 +1,40 @@
+#!/usr/bin/python3 -I
+# Minimal stand-in for GNU objcopy on macOS: only "--input-target=ihex -O binary IN OUT".
+# Like objcopy, output starts at the lowest loaded address and gaps are zero-filled.
+import sys
+a = sys.argv[1:]
+if a[:3] != ['--input-target=ihex', '-O', 'binary'] or len(a) != 5:
+    sys.exit('objcopy shim: unsupported arguments: %r' % a)
+mem = {}
+base = 0
+for n, line in enumerate(open(a[3]), 1):
+    line = line.strip()
+    if not line:
+        continue
+    if line[0] != ':':
+        sys.exit('line %d: not ihex' % n)
+    b = bytes.fromhex(line[1:])
+    if sum(b) & 0xff:
+        sys.exit('line %d: checksum' % n)
+    cnt, addr, typ, data = b[0], (b[1] << 8) | b[2], b[3], b[4:4 + b[0]]
+    if typ == 0:
+        for i, v in enumerate(data):
+            p = base + addr + i
+            if p in mem and mem[p] != v:
+                sys.exit('line %d: overlapping data at 0x%x' % (n, p))
+            mem[p] = v
+    elif typ == 1:
+        break
+    elif typ == 2:
+        base = ((data[0] << 8) | data[1]) << 4
+    elif typ == 4:
+        base = ((data[0] << 8) | data[1]) << 16
+    elif typ in (3, 5):
+        pass
+    else:
+        sys.exit('line %d: record type %d' % (n, typ))
+lo, hi = min(mem), max(mem) + 1
+out = bytearray(hi - lo)
+for p, v in mem.items():
+    out[p - lo] = v
+open(a[4], 'wb').write(out)
