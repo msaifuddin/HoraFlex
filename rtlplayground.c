@@ -34,6 +34,9 @@
 #include "httpd/page_impl.h"
 #include "boot.h"
 #include "sfp.h"
+#ifdef UNIFI
+#include "unifi/uf_glue.h"
+#endif
 
 extern __code const struct machine machine;
 extern __xdata uint32_t flash_size;
@@ -1000,6 +1003,9 @@ void handle_rx(void)
 			}
 		} else if (ETH_IN->ether_type == HTONS(0x0800)) { // IPv4
 			if (!management_vlan || management_vlan == rx_packet_vlan) {
+#ifdef UNIFI
+				uf_rx_port = rx_headers[3] & 0xf;
+#endif
 				uip_arp_ipin();
 				uip_input();
 				if (uip_len) {
@@ -1229,6 +1235,10 @@ void idle(void)
 	if (tick_pending) {
 		tick_pending = 0;
 		handle_tick();
+#ifdef UNIFI
+		if (idle_ready)
+			uf_glue_poll();
+#endif
 	}
 	if (link_irq) {
 		link_irq = 0;
@@ -1552,6 +1562,7 @@ void check_and_flash_update_image(void)
 			reset_chip();
 		}
 		print_string("Checksum incorrect, please upload the image again\n");
+#ifndef FLASH_DUMP
 		print_string("Erasing bad uploaded flash image\n");
 		dest = FIRMWARE_UPLOAD_START;
 		for (register uint8_t i=0; i < 128; i++) {
@@ -1559,6 +1570,11 @@ void check_and_flash_update_image(void)
 			flash_sector_erase();
 			dest += 0x1000;
 		}
+#else
+		/* Leave it: after an OEM install this area can still hold the vendor's
+		 * data, which a flash backup through /flash.bin should be able to read.
+		 * The next upload overwrites it. */
+#endif
 	}
 	else
 	{

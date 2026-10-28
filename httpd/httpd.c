@@ -273,6 +273,48 @@ void send_to_login(void)
 }
 
 
+#ifdef FLASH_DUMP
+extern __xdata uint32_t flash_size;
+
+
+/*
+ * Read-only flash dump for backups without a programmer: GET /flash.bin?NN
+ * returns 32 KiB block NN (two hex digits, address NN * 0x8000) through the
+ * same continuation path that serves the web UI from flash.
+ */
+static __xdata uint8_t flash_blk;
+
+static void send_flash(__xdata uint8_t *a)
+{
+	__xdata uint8_t i, c;
+
+	flash_blk = 0;
+	/* The request parser has already replaced the '?' with a NUL */
+	if (*a && *a != '?')
+		goto bad;
+	a++;
+	for (i = 0; i < 2; i++) {
+		c = *a++;
+		if (c >= '0' && c <= '9')
+			c -= '0';
+		else if (c >= 'a' && c <= 'f')
+			c -= 'a' - 10;
+		else
+			goto bad;
+		flash_blk = (flash_blk << 4) | c;
+	}
+	if (flash_blk >= (uint8_t)(flash_size >> 15) && flash_size < 0x800000UL)
+		goto bad;
+	slen = strtox(outbuf, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+		"Content-Length: 32768\r\nConnection: close\r\n\r\n");
+	cont_addr = (uint32_t)flash_blk << 15;
+	cont_len = 0x8000;
+	return;
+bad:
+	send_not_found();
+}
+#endif
+
 void send_unauthorized(void)
 {
 	slen = strtox(outbuf, "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
@@ -1066,6 +1108,10 @@ void httpd_appcall(void)
 			} else if (is_word(q, "/cmd_log_clear")) {
 				clear_command_history();
 				send_mtu(); // dummy response
+#ifdef FLASH_DUMP
+			} else if (is_word(q, "/flash.bin")) {
+				send_flash(q + 10);
+#endif
 			} else if (is_word(q, "/reset")) {
 				uip_close();
 				delay(1000); //wait for the close packet to be sent, otherwise the browser will retry

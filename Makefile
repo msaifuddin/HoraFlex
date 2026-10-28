@@ -47,6 +47,28 @@ ifeq ($(CI),1)
 	CC_FLAGS += --Werror
 endif
 
+# FLASH_DUMP=1: GET /flash.bin?NN serves 32 KiB flash block NN to a logged-in
+# user, and a staged image that fails its CRC is kept instead of erased, so a
+# switch can be backed up over the network without a programmer.
+ifneq ($(FLASH_DUMP),)
+	CC_FLAGS += -DFLASH_DUMP
+endif
+
+# UniFi device emulation. The UniFi identity is separate from the hardware
+# MACHINE: e.g. make MACHINE=SWTG024AS_A_2_0_1_5C_1SFP UNIFI_MODEL=USWED35 UNIFI_VERSION=2.1.8.971
+ifneq ($(UNIFI_MODEL),)
+	CC_FLAGS += -DUNIFI -DUNIFI_MODEL=\"$(UNIFI_MODEL)\"
+ifeq ($(FLASH_DUMP),)
+	CC_FLAGS += -DFLASH_DUMP
+endif
+ifneq ($(UNIFI_VERSION),)
+	CC_FLAGS += -DUNIFI_VERSION=\"$(UNIFI_VERSION)\"
+endif
+ifneq ($(UNIFI_MODEL_DISPLAY),)
+	CC_FLAGS += -DUNIFI_MODEL_DISPLAY=\"$(UNIFI_MODEL_DISPLAY)\"
+endif
+endif
+
 # The board definition being built: one file per MACHINE_* symbol in machine.h.
 MACHINE_SRC = machine/$(MACHINE).c
 
@@ -96,6 +118,7 @@ create_build_dir: $(SDCC)
 	mkdir -p "$(BUILDDIR)/uip"
 	mkdir -p "$(BUILDDIR)/httpd"
 	mkdir -p "$(BUILDDIR)/machine"
+	mkdir -p "$(BUILDDIR)/unifi"
 
 # Every machine is a pair machine/<MACHINE>.c + machine/<MACHINE>.h. Selecting
 # them by name means no #if/#elif chain, so an unknown or empty $MACHINE is
@@ -164,6 +187,22 @@ SRCS += \
 	uip/uip-fw.c \
 	uip/uip-neighbor.c \
 	uip/uip-split.c
+ifneq ($(UNIFI_MODEL),)
+# The agent lives in BANK5: flash 0x34000-0x3ffff, below the web UI data at 0x40000
+LINK_BANKS = -Wl-bBANK5=0x54000
+SRCS += \
+	unifi/uf_agent.c \
+	unifi/uf_cfg.c \
+	unifi/uf_crypto.c \
+	unifi/uf_http.c \
+	unifi/uf_hw.c \
+	unifi/uf_json.c \
+	unifi/uf_msg.c \
+	unifi/uf_store.c \
+	unifi/uf_tnbu.c \
+	unifi/uf_uip.c \
+	unifi/uf_util.c
+endif
 
 OBJS = ${SRCS:%.c=$(BUILDDIR)/%.rel}
 DEPS := ${SRCS:%.c=$(BUILDDIR)/%.d}
@@ -248,7 +287,7 @@ $(BUILDDIR)/%.rel: %.asm $(CCFLAGS_STAMP) | create_build_dir
 #	mv -f $(addprefix $(basename $^), .lst .rel .sym) .
 
 $(BUILDDIR)/rtlplayground.ihx: $(OBJS) $(BUILDDIR)/crtbank.rel $(BUILDDIR)/crc16.rel
-	$(CC) $(CC_FLAGS) --xram-size 49151 -Wl-bHOME=0x00000 -Wl-bBANK1=0x14000 -Wl-bBANK2=0x24000 -Wl-bBANK3=0x34000 -Wl-bBANK4=0x44000 -Wl-r -o $@ $^
+	$(CC) $(CC_FLAGS) --xram-size 49151 -Wl-bHOME=0x00000 -Wl-bBANK1=0x14000 -Wl-bBANK2=0x24000 -Wl-bBANK3=0x34000 -Wl-bBANK4=0x44000 $(LINK_BANKS) -Wl-r -o $@ $^
 
 $(BUILDDIR)/rtlplayground.img: $(BUILDDIR)/rtlplayground.ihx
 	objcopy --input-target=ihex -O binary $< $@

@@ -94,7 +94,12 @@ typedef unsigned short uip_stats_t;
  *
  * \hideinitializer
  */
+#ifdef UNIFI
+/* One slot for httpd, one for the UniFi inform client (see unifi/uf_uip.c) */
+#define UIP_CONF_MAX_CONNECTIONS 2
+#else
 #define UIP_CONF_MAX_CONNECTIONS 1
+#endif
 
 /**
  * This httpd closes after every response, so an ESTABLISHED connection
@@ -185,6 +190,10 @@ typedef unsigned short uip_stats_t;
 /* Here we include the header file for the application(s) we use in
    our project. */
 /*#include "smtp.h"*/
+#ifdef UNIFI
+void uf_uip_appcall(void);
+#define UIP_APPCALL uf_uip_appcall
+#endif
 #include "httpd.h"
 #include "udp_apps.h"
 /*#include "telnetd.h"*/

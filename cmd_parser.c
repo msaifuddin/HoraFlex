@@ -33,6 +33,9 @@
 #include "machine.h"
 #include "rtl837x_leds.h"
 #include "phy.h"
+#ifdef UNIFI
+#include "unifi/uf_glue.h"
+#endif
 
 #pragma codeseg BANK2
 #pragma constseg BANK2
@@ -1904,6 +1907,10 @@ void cmd_parser(void) __banked
 			parse_mtu();
 		} else if (cmd_compare(0, "syslog")) {
 			parse_syslog();
+#ifdef UNIFI
+		} else if (cmd_compare(0, "unifi")) {
+			uf_cli();
+#endif
 		} else if (cmd_compare(0, "dns")) {
 			dns_parse();
 		} else if (cmd_compare(0, "ntp") || cmd_compare(0, "time")) {
@@ -2347,15 +2354,11 @@ void health_show(void) __banked
 	print_byte(i);
 	write_char('\n');
 
-	/* The TCP connection slot. One on this configuration; a build with more
-	 * has to say which slot each line is, so make that a visible decision. */
-#if UIP_CONNS != 1
-#error "health: the tcp dump prints a single slot, extend it for UIP_CONNS > 1"
-#endif
-	i = 0;
-	{
-		print_string("tcp ");
-		print_string("st ");
+	/* The TCP connection slots, each line tagged with its slot number */
+	for (i = 0; i < UIP_CONNS; i++) {
+		print_string("tcp");
+		write_char('0' + i);
+		print_string(" st ");
 		print_byte(uip_conns[i].tcpstateflags);
 		print_string(" tmr ");
 		print_byte(uip_conns[i].timer);
