@@ -1097,6 +1097,9 @@ void handle_button(void)
 			{
 				print_string(">10s button detected; reverting to default settings:\n");
 				flash_default_config();
+#ifdef UNIFI
+				uf_factory_reset();
+#endif
 				print_string("Now resetting...\n");
 				reset_chip();
 			}
@@ -1772,6 +1775,9 @@ void main(void)
 	early_boot_handle_button();
 
 	execute_config();
+#ifdef UNIFI
+	uf_glue_autostart();
+#endif
 	// After the config so the entry lands in the final management VLAN
 	port_l2_static_mgmt(uip_ethaddr.addr, management_vlan, false);
 	/* After the config: a name from it wins, otherwise derive one. */

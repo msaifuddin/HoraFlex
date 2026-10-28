@@ -12,6 +12,9 @@
 #include "rtl837x_pins.h"
 #include "rtl837x_phy.h"
 #include "rtl837x_port.h"
+#ifdef UNIFI
+#include "unifi/uf_glue.h"
+#endif
 #include "rtl837x_init.h"
 #include "machine.h"
 #include "phy.h"
@@ -110,6 +113,9 @@ void early_boot_handle_button(void) __banked
 		print_string("[Button held 10s-30s at boot; restoring default config]\n");
 		set_sys_led_state(SYS_LED_FAST);
 		flash_default_config();
+#ifdef UNIFI
+		uf_factory_reset();
+#endif
 		delay(3UL * SYS_TICK_HZ);
 	}
 }

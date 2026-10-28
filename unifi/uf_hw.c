@@ -2,6 +2,10 @@
  * RTL837x platform glue for the UniFi agent: flash, clock, logging, switch
  * telemetry and configuration, uIP transport, CLI and diagnostics.
  *
+ * The agent starts by itself after the startup configuration ran ("unifi off"
+ * there prevents it). Without "unifi controller" it informs the network's
+ * gateway, which is the controller on a UniFi gateway (UCG, UDM, ...).
+ *
  * UniFi port p (1..5) is front-panel port p, i.e. logical port
  * machine.phys_to_log_port[p - 1]. Other logical ports, the SFP+ in
  * particular, are never reported and never changed by the controller; VLAN
@@ -51,6 +55,8 @@ static __xdata uint8_t uplink_forced;		/* UniFi port set by CLI, 0 = automatic *
 static __xdata uint8_t ctrl_ip[4];
 static __xdata uint16_t ctrl_port = 8080;
 static __xdata uint8_t g_started;
+static __xdata uint8_t ctrl_auto = 1;		/* follow the gateway until adopted */
+static __xdata uint8_t cfg_off;			/* "unifi off" before the agent started */
 
 /* Diagnostics: longest inform cycle, response handling and apply, in 5 ms ticks.
  * Stack depth is measured with the HEALTH=1 build ("health" command). */
@@ -453,6 +459,22 @@ static void start(void)
 	uf_agent.enabled = 1;
 }
 
+void uf_glue_autostart(void) __banked
+{
+	if (!g_started && !cfg_off)
+		start();
+}
+
+void uf_factory_reset(void) __banked
+{
+	uf_store_load();
+	uf_state.flags = 0;
+	memset(uf_state.authkey, 0, 16);
+	memset(uf_state.ctrl_ip, 0, 4);
+	uf_state.cfgversion[0] = 0;
+	print_string(uf_store_commit() ? "UniFi adoption cleared\n" : "UniFi adoption could not be cleared\n");
+}
+
 void uf_glue_poll(void) __banked
 {
 	__xdata uint16_t t0;
@@ -460,6 +482,10 @@ void uf_glue_poll(void) __banked
 	if (!g_started || !uf_agent.enabled)
 		return;
 	copy_hostname();
+	if (ctrl_auto && !(uf_state.flags & UF_SF_ADOPTED)) {
+		memcpy(uf_state.ctrl_ip, (__xdata void *)uip_draddr, 4);
+		uf_state.ctrl_port = 8080;
+	}
 	t0 = ticks16();
 	uf_agent_poll();
 	t0 = ticks16() - t0;
@@ -540,6 +566,7 @@ static void status(void)
 	print_ip4(g_started ? uf_state.ctrl_ip : ctrl_ip);
 	write_char(':');
 	itoa_short(g_started ? uf_state.ctrl_port : ctrl_port);
+	print_string(ctrl_auto && !(uf_state.flags & UF_SF_ADOPTED) ? " (gateway)" : "");
 	print_string("\n Adopted: ");
 	print_string(uf_state.flags & UF_SF_ADOPTED ? "yes" : "no");
 	print_string(uf_state.flags & UF_SF_GCM ? " (AES-GCM)" : "");
@@ -600,17 +627,20 @@ void uf_cli(void) __banked
 		}
 		memcpy(ctrl_ip, ip, 4);
 		ctrl_port = v;
+		ctrl_auto = 0;
 		if (g_started && !(uf_state.flags & UF_SF_ADOPTED)) {
 			memcpy(uf_state.ctrl_ip, ip, 4);
 			uf_state.ctrl_port = v;
 		}
 		start();
 	} else if (word_is(1, "on")) {
-		if (ctrl_ip[0] | g_started)
-			start();
-		else
-			print_string("Set the controller first: unifi controller <ip> [port]\n");
+		cfg_off = 0;
+		start();
+	} else if (word_is(1, "controller") && word_is(2, "auto")) {
+		ctrl_auto = 1;
+		start();
 	} else if (word_is(1, "off")) {
+		cfg_off = 1;
 		uf_agent.enabled = 0;
 	} else if (word_is(1, "discovery")) {
 		uf_agent.discovery = word_is(2, "on");
@@ -626,6 +656,6 @@ void uf_cli(void) __banked
 		else
 			print_string("unifi uplink <1-5|auto>\n");
 	} else {
-		print_string("unifi [status|controller <ip> [port]|on|off|forget|uplink <1-5|auto>|discovery on|off]\n");
+		print_string("unifi [status|controller <ip> [port]|controller auto|on|off|forget|uplink <1-5|auto>|discovery on|off]\n");
 	}
 }
