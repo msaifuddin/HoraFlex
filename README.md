@@ -70,58 +70,102 @@ You need a computer with a wired Ethernet port and the files from the
 
 ### 2. Put the switch on your network
 
-In the web interface open System > Startup configuration, set an address in your
-LAN that is outside your DHCP range, and save:
+The switch needs a fixed address in your home network. Pick one that is free and outside the range
+your router hands out automatically (the "DHCP range", shown in your router's or UniFi's network
+settings; for example, if the router hands out .100-.200, use .240).
+
+In the web interface open **System > Startup configuration**, add these lines with your own values,
+and save:
 
 ```
 ip 192.168.1.240
 gw 192.168.1.1
 netmask 255.255.255.0
-passwd <a new password>
+passwd MyNewPassword
 ```
 
-Reboot the switch (System > Reboot switch), move the computer back to your normal network, and connect one
-switch port to your LAN. The switch is now at the address you set.
+| Line | Meaning |
+|---|---|
+| `ip` | the switch's new address |
+| `gw` | gateway: your router's address (with UniFi, the gateway's address, e.g. the UCG or UDM) |
+| `netmask` | your network's subnet mask; `255.255.255.0` for most home networks |
+| `passwd` | new password for the switch's web interface (replaces `1234`) |
 
-A static address is recommended: with `ip dhcp` the switch sends its DHCP request from its old
-address, which some routers (including UniFi gateways) drop.
+Then:
+
+1. Reboot the switch: **System > Reboot switch**.
+2. Set your computer back to automatic network settings (undo step 1 of the installation).
+3. Connect **port 1** of the switch to your network (a port on your router or another switch).
+4. Open `http://192.168.1.240` (your new address) to check the switch is reachable.
+
+Use a fixed address as above. The `ip dhcp` option (address from the router) can fail: the switch
+asks for an address while still using its old one, and some routers, including UniFi gateways,
+ignore that request.
 
 ### 3. Adopt it in UniFi
 
-1. Add two lines to the startup configuration, using your controller's address, and save:
+1. In **System > Startup configuration**, add two more lines and save:
 
    ```
    unifi uplink 1
    unifi controller 192.168.1.1
    ```
 
-   `unifi uplink 1` protects the port that connects to your LAN (use that port's number): the switch
-   refuses any controller setting that would disable it or remove VLAN 1 from it.
-2. Reboot the switch. Within about 30 seconds it appears in UniFi Network > Devices as
-   **USW Flex 2.5G 5**, pending adoption.
-3. Click Adopt. After adoption, manage ports and VLANs from UniFi as usual.
+   - `unifi controller` is the address of your UniFi Network controller: on a UniFi gateway
+     (UCG, UDM, Cloud Key) it is that device's address; for the UniFi Network application on a
+     computer, it is that computer's address.
+   - `unifi uplink 1` tells the switch that port 1 is the cable to the rest of your network. The
+     switch then refuses any setting from UniFi that would cut it off, such as disabling port 1 or
+     removing the Default network from it. If you used another port in step 2, use its number.
+2. Reboot the switch. Within about 30 seconds it appears in **UniFi Network > Devices** as
+   **USW Flex 2.5G 5**, waiting for adoption.
+3. Click **Adopt**. After adoption, manage ports and VLANs from UniFi as usual.
 
 ## Everyday tasks
 
 | Task | How |
 |---|---|
-| Update the firmware | Web interface > Firmware: upload the new `...-SWTG024AS_A_2_0_1_5C_1SFP.bin`. Adoption and settings are kept. |
-| Check the UniFi status | System > Console: `unifi` (output goes to the serial console and syslog) |
-| See the log | Set `syslog ip <computer>` and `syslog on` in the configuration and run a syslog receiver |
-| Stop UniFi management | Remove the `unifi controller` line from the configuration and reboot |
-| Return to a plain switch | Remove the device in UniFi (resets the ports), then remove the `unifi controller` line |
-| Back up the switch's flash | See [doc/unifi.md](doc/unifi.md#flash-backup-without-a-programmer) |
+| Update the firmware | **Firmware** page: upload the new `...-SWTG024AS_A_2_0_1_5C_1SFP.bin`. Adoption and settings are kept. |
+| Stop UniFi management | Remove the `unifi controller` line from the startup configuration and reboot. The ports keep their last settings. |
+| Return to a plain switch | Remove the device in UniFi (this resets all ports to the Default network), then remove the `unifi controller` line. |
+| See what the switch is doing | See "Reading the switch's log" below. |
+| Back up the switch's memory | See [doc/unifi.md](doc/unifi.md#flash-backup-without-a-programmer). |
 
-Going back to the stock Horaco firmware needs a SPI programmer and a backup of the original flash.
+Going back to the stock Horaco firmware is only possible by opening the switch and writing a saved copy
+of its original memory chip with a SPI programmer (a small USB device with a clip for the chip).
+
+### Reading the switch's log
+
+Status messages, including the output of the `unifi` command, are not shown on the web page. They go
+to the switch's log, which it can send over the network ("syslog") to a computer:
+
+1. Add to the startup configuration, with your computer's address, and save:
+
+   ```
+   syslog ip 192.168.1.50
+   syslog on
+   ```
+
+2. On that computer, run a syslog receiver listening on UDP port 514, for example the free
+   *Visual Syslog Server* on Windows, or on macOS/Linux:
+
+   ```
+   python3 -c "import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.bind(('',514));[print(s.recv(4096).decode(errors='replace'),flush=True) for _ in iter(int,1)]"
+   ```
+
+   (On Linux this needs `sudo`.)
+3. In **System > Console** of the switch, type `unifi` and press Enter. The status appears in the
+   receiver: whether the switch is adopted, how many messages succeeded or failed, and any error.
 
 ## Troubleshooting
 
-| Symptom | Check |
+| Problem | What to check |
 |---|---|
-| Device never appears in UniFi | The switch must reach the controller on TCP 8080. Check the `unifi controller` address and `gw`. |
-| Adoption fails / "Adopt failed" | Make sure `unifi discovery on` is not set: with discovery broadcasts the controller tries SSH adoption, which this switch does not have. Remove the device in UniFi and adopt again. |
-| Settings from UniFi are not applied | Run `unifi`: "Config error" and "apply error" give the reason; error 9 means the change would have cut off the uplink port. |
-| Web interface unreachable after a change | Power-cycle the switch; if the address was changed, the switch uses the saved configuration. |
+| The switch never appears in UniFi | The switch must be able to reach the UniFi controller. Check that the `unifi controller` line has the controller's correct address and that the `gw` line has your router's address. The controller listens on port 8080; a firewall between them must allow it. |
+| UniFi shows "Adopt failed" | Remove the device in UniFi, wait a minute and adopt again. Make sure the configuration does not contain `unifi discovery on`: with it, UniFi tries to adopt through a remote login (SSH) this switch does not have. |
+| A change made in UniFi has no effect | Read the switch's log (above) and type `unifi`. A "Config error" other than 0 means the switch refused the change; error 8 or 9 means it would have disabled port 1 or removed the Default network from it (see `unifi uplink`). |
+| The switch's web page cannot be reached | Check the address you set with `ip`. Unplug the power for a few seconds and plug it back in; the switch starts with the saved startup configuration. |
+| Unsure which firmware is running | The web interface's Dashboard shows the software version. |
 
 ## How it works
 
