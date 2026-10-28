@@ -18,6 +18,57 @@ No extra hardware, Raspberry Pi or helper service is needed.
 > behaviour. Replacing switch firmware can make the device unusable; without a SOIC-8 clip and SPI
 > programmer a switch that does not boot cannot be recovered.
 
+## The hardware
+
+<img src="https://img.staticdj.com/48c3f76ba3bdab4ad04a21371f27317c_2056x.jpg" alt="Horaco HC-SWTGW215AS" width="360">
+
+<sub>Horaco HC-SWTGW215AS (image: HORACO)</sub>
+
+**Model: Horaco HC-SWTGW215AS**, "2.5G Web Managed Switch": 5 x 2.5GbE RJ45 + 1 x 10G SFP+,
+metal case, port 6 labelled "SFP+(10G)". The one used here was bought from
+[this AliExpress listing](https://www.aliexpress.com/item/1005010660780744.html).
+
+Horaco and other brands sell many switches that look almost the same (4+1, 8+1, unmanaged, PoE,
+different chips). Only the **HC-SWTGW215AS** has been tested. The web-managed version is needed:
+an unmanaged switch has no web page to upload the firmware through. If the listing offers several
+variants, pick the 5 x 2.5G + 1 x 10G SFP+ **managed** one and check that the model name on the
+label is HC-SWTGW215AS. The stock firmware tested was V200.1.10.
+
+### What UniFi sees it as
+
+UniFi shows the switch as a **USW-Flex-2.5G-5** (Switch Flex Mini 2.5G, model code USWED35).
+How the two compare:
+
+| | Horaco HC-SWTGW215AS with HoraFlex | UniFi USW-Flex-2.5G-5 |
+|---|---|---|
+| RJ45 ports | 5 x 2.5GbE | 5 x 2.5GbE |
+| SFP+ | 1 x 10G (works as a normal switch port, not shown in UniFi) | none |
+| Power | its own power adapter | USB-C (5 V 1 A) or PoE from port 1 |
+| Managed by UniFi | yes, ports and VLANs (see [What works](#what-works)) | yes, all features |
+| Firmware updates | from this project's releases, not from UniFi | from UniFi |
+| Switching capacity | 45 Gbps (Horaco) | 25 Gbps |
+| Size | larger (metal desktop case) | 117 x 90 x 21 mm |
+
+Ubiquiti's full specifications:
+[techspecs.ui.com/unifi/switching/usw-flex-2-5g-5](https://techspecs.ui.com/unifi/switching/usw-flex-2-5g-5).
+The USW-Flex-2.5G-5 needs UniFi Network 8.6.9 or newer.
+
+### Screenshots
+
+The switch's own web page after installing:
+
+<img src="doc/images/horaflex/ui-dash.png" alt="Status page" width="640">
+
+<details>
+<summary>More pages: ports, VLANs, system, firmware update</summary>
+
+<img src="doc/images/horaflex/ui-ports.png" alt="Ports page" width="640">
+<img src="doc/images/horaflex/ui-vlan.png" alt="VLAN page" width="640">
+<img src="doc/images/horaflex/ui-system.png" alt="System page" width="640">
+<img src="doc/images/horaflex/ui-fw.png" alt="Firmware update page" width="640">
+
+</details>
+
 ## What works
 
 Tested on one HC-SWTGW215AS (stock firmware V200.1.10) with a UniFi Cloud Gateway Ultra running
