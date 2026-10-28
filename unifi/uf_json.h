@@ -15,7 +15,8 @@
 #define UF_JK_INTERVAL		4
 #define UF_JK_SERVER_TIME	5
 #define UF_JK_CMD		6
-#define UF_JK_N			7
+#define UF_JK_VERSION		7
+#define UF_JK_N			8
 
 #define UF_JT_ABSENT	0
 #define UF_JT_STRING	1

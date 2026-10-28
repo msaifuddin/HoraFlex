@@ -42,6 +42,7 @@ struct uf_state {
 	uint8_t ctrl_ip[4];
 	uint16_t ctrl_port;
 	char cfgversion[UF_CFGVER_LEN];
+	char fwver[UF_FWVER_LEN];	/* version accepted from an upgrade request, "" = built-in */
 };
 
 extern UF_X struct uf_state uf_state;

@@ -35,6 +35,7 @@ struct uf_self {
 	uint16_t inform_port;
 	char cfgversion[UF_CFGVER_LEN];	/* "" reports "?" */
 	char hostname[UF_NAME_LEN];
+	char version[UF_FWVER_LEN];	/* firmware version reported to the controller */
 	uint32_t disc_seq;
 };
 

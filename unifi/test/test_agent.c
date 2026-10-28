@@ -159,6 +159,7 @@ static void discovery_golden(void)
 	memcpy(uf_self.mac, MAC, 6);
 	memcpy(uf_self.ip, (uint8_t[]){ 192, 0, 2, 20 }, 4);
 	strcpy(uf_self.hostname, "hc-swtgw215as");
+	strcpy(uf_self.version, "2.1.8.971");
 	uf_self.uptime = 1234;
 	uf_self.disc_seq = 7;
 	gn = uf_disc_build(got);
@@ -304,13 +305,24 @@ static void tamper_and_policy(void)
 	CHECK_EQ(uf_agent.last_apply_err, UF_AE_VERIFY);
 	CHECK_STR(uf_self.cfgversion, "7066c2ce192f33b9");
 
-	/* unknown types and commands are logged and ignored */
+	/* firmware upgrade: nothing installed, the requested version is reported from now on */
 	CHECK(run_until_busy(40));
 	take_request(authkey);
+	CHECK(strstr(plain, "\"version\":\"2.1.8.971\""));
 	fk_log[0] = 0;
-	respond("{\"_type\":\"upgrade\",\"url\":\"http://x/fw.bin\",\"version\":\"9.9.9\"}", 2);
-	CHECK(log_has("firmware upgrade request ignored"));
+	respond("{\"_type\":\"upgrade\",\"url\":\"http://x/fw.bin\",\"version\":\"2.1.9.100\",\"md5sum\":\"00\"}", 2);
+	CHECK(log_has("upgrade request accepted, nothing installed, now reporting 2.1.9.100"));
 	CHECK(uf_self.adopted);
+	CHECK_STR(uf_state.fwver, "2.1.9.100");
+	CHECK(run_until_busy(3));
+	take_request(authkey);
+	CHECK(strstr(plain, "\"version\":\"2.1.9.100\""));
+	/* malformed version: ignored */
+	fk_log[0] = 0;
+	respond("{\"_type\":\"upgrade\",\"url\":\"http://x/fw.bin\",\"version\":\"2.1.9; rm\"}", 2);
+	CHECK(log_has("firmware upgrade request ignored"));
+	CHECK_STR(uf_self.version, "2.1.9.100");
+	/* unknown types and commands are logged and ignored */
 	CHECK(run_until_busy(40));
 	take_request(authkey);
 	respond("{\"_type\":\"cmd\",\"cmd\":\"set-locate\"}", 2);
@@ -411,9 +423,11 @@ static void forget(void)
 	CHECK(run_until_busy(40));
 	take_request(authkey);
 	memcpy(epoch, uf_state.epoch, 8);
+	CHECK_STR(uf_self.version, "2.1.9.100");	/* survived the reboot */
 	respond("{\"_type\":\"setdefault\"}", 2);
 	CHECK(!uf_self.adopted);
 	CHECK_EQ(uf_state.flags, 0);
+	CHECK_STR(uf_self.version, "2.1.8.971");	/* back to the built-in version */
 	/* ports are back to VLAN 1 untagged, PVID 1, enabled */
 	CHECK_EQ(fk_applied.nv, 1);
 	CHECK_EQ(fk_applied.vid[0], 1);
@@ -434,6 +448,11 @@ static void forget(void)
 	respond(setparam_adopt, 0);
 	CHECK(uf_self.adopted);
 	CHECK(run_until_busy(5));
+	take_request(authkey);
+	/* an upgrade under CBC (not authenticated) is ignored */
+	respond("{\"_type\":\"upgrade\",\"version\":\"3.0.0\"}", 1);
+	CHECK_STR(uf_self.version, "2.1.8.971");
+	CHECK(run_until_busy(40));
 	take_request(authkey);
 	respond("{\"_type\":\"setdefault\"}", 1);	/* CBC under the authkey: refused, GCM required */
 	CHECK(uf_self.adopted);

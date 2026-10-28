@@ -13,7 +13,7 @@
 UF_X struct uf_jval uf_jv[UF_JK_N];
 
 static UF_C const char * UF_C const keys[UF_JK_N] = {
-	"_type", "cfgversion", "mgmt_cfg", "system_cfg", "interval", "server_time_in_utc", "cmd"
+	"_type", "cfgversion", "mgmt_cfg", "system_cfg", "interval", "server_time_in_utc", "cmd", "version"
 };
 
 static UF_X uint8_t * UF_X jp;

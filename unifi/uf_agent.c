@@ -23,6 +23,7 @@
 #include "uf_store.h"
 #include "uf_http.h"
 #include "uf_hw.h"
+#include "uf_ident.h"
 
 #ifdef __SDCC
 #pragma codeseg BANK5
@@ -55,6 +56,35 @@ static UF_X uint16_t a_n;
 static UF_X uint32_t a_now;
 static UF_X uint8_t * UF_X a_p;		/* response plaintext */
 static UF_X uint8_t a_auth;		/* response GCM tag verified */
+
+static UF_C const char build_version[] = UNIFI_VERSION;
+
+/* A version string the controller may give us: digits and dots, starting with a digit */
+static uint8_t version_ok(UF_X const char * UF_X v)
+{
+	UF_X uint8_t i;
+
+	if (!v || v[0] < '0' || v[0] > '9')
+		return 0;
+	for (i = 0; v[i]; i++)
+		if (i >= UF_FWVER_LEN - 1 || ((v[i] < '0' || v[i] > '9') && v[i] != '.'))
+			return 0;
+	return 1;
+}
+
+/* The version reported: one accepted from an upgrade request, else the built-in one */
+static void set_version(void)
+{
+	UF_X uint8_t i;
+
+	if (version_ok(uf_state.fwver)) {
+		uf_memcpy((UF_X uint8_t *)uf_self.version, (UF_X uint8_t *)uf_state.fwver, UF_FWVER_LEN);
+		return;
+	}
+	for (i = 0; build_version[i] && i < UF_FWVER_LEN - 1; i++)
+		uf_self.version[i] = build_version[i];
+	uf_self.version[i] = 0;
+}
 
 static uint8_t adopted(void)
 {
@@ -132,6 +162,7 @@ void uf_agent_init(UF_X const uint8_t * UF_X mac, UF_X const uint8_t * UF_X ctrl
 	uf_live.nv = 0xff;
 	uf_memcpy(uf_self.mac, mac, 6);
 	uf_store_load();
+	set_version();
 	/* An adopted device keeps the controller it was adopted by */
 	if (!adopted() || !(uf_state.ctrl_ip[0] | uf_state.ctrl_ip[1] | uf_state.ctrl_ip[2] | uf_state.ctrl_ip[3])) {
 		uf_memcpy(uf_state.ctrl_ip, ctrl_ip, 4);
@@ -238,7 +269,9 @@ uint8_t uf_agent_forget(void) UF_BANKED
 	uf_state.flags = 0;
 	uf_memset(uf_state.authkey, 0, 16);
 	uf_state.cfgversion[0] = 0;
+	uf_state.fwver[0] = 0;
 	ok = uf_store_commit();	/* the epoch is kept: it must never go back */
+	set_version();
 	/* Back to plain switching on the five ports */
 	uf_plan_default();
 	if (uh_apply() == UF_AE_NONE)
@@ -381,6 +414,31 @@ static void setparam(void)
 	}
 }
 
+/*
+ * The controller asks the device to install a USWED35 firmware. Nothing is
+ * downloaded or installed: that firmware is for different hardware. The
+ * requested version is stored and reported, so the controller considers the
+ * upgrade done instead of retrying it (with automatic updates, every night).
+ */
+static void upgrade(void)
+{
+	UF_X const char * UF_X v = jstr(UF_JK_VERSION);
+	UF_X uint8_t i;
+
+	if (!a_auth || !adopted() || !version_ok(v)) {
+		uh_log("unifi: firmware upgrade request ignored", 0);
+		return;
+	}
+	for (i = 0; v[i]; i++)
+		uf_state.fwver[i] = v[i];
+	uf_state.fwver[i] = 0;
+	if (!uf_store_commit())
+		uh_log("unifi: could not store the upgraded version", 0);
+	set_version();
+	uh_log_x("unifi: upgrade request accepted, nothing installed, now reporting ", uf_self.version);
+	schedule(1);
+}
+
 static uint8_t is_reset_type(void)
 {
 	return type_is("setdefault") || type_is("reset") || type_is("forget") || type_is("delete")
@@ -422,7 +480,7 @@ static void handle_response(void)
 		else
 			uh_log("unifi: reset ignored, response not GCM-authenticated", 0);
 	} else if (type_is("upgrade")) {
-		uh_log("unifi: firmware upgrade request ignored", 0);
+		upgrade();
 	} else if (type_is("cmd")) {
 		if (jstr(UF_JK_CMD))
 			uh_log_x("unifi: controller command ignored: ", jstr(UF_JK_CMD));

@@ -6,6 +6,7 @@
  *   8  sequence (4)  12 epoch (8)     20 authkey (16)
  *   36 controller IPv4 (4)            40 controller port (2)
  *   42 cfgversion (33, NUL-terminated)
+ *   76 reported firmware version (20, NUL-terminated, "" = built-in)
  *   96 plan: struct uf_plan as the firmware lays it out (plan size bytes)
  *   508 CRC-32 of bytes 0..507
  */
@@ -92,6 +93,8 @@ void uf_store_encode(UF_X uint8_t * UF_X r) UF_BANKED
 	}
 	uf_memcpy(r + 42, (UF_X uint8_t *)uf_state.cfgversion, UF_CFGVER_LEN);
 	r[42 + UF_CFGVER_LEN - 1] = 0;
+	uf_memcpy(r + 76, (UF_X uint8_t *)uf_state.fwver, UF_FWVER_LEN);
+	r[76 + UF_FWVER_LEN - 1] = 0;
 	put32(r + 8, uf_state.seq);
 	uf_memcpy(r + 12, uf_state.epoch, 8);
 	uf_memcpy(r + 20, uf_state.authkey, 16);
@@ -120,6 +123,8 @@ uint8_t uf_store_decode(UF_X const uint8_t * UF_X r) UF_BANKED
 	uf_state.ctrl_port = ((uint16_t)r[40] << 8) | r[41];
 	uf_memcpy((UF_X uint8_t *)uf_state.cfgversion, r + 42, UF_CFGVER_LEN);
 	uf_state.cfgversion[UF_CFGVER_LEN - 1] = 0;
+	uf_memcpy((UF_X uint8_t *)uf_state.fwver, r + 76, UF_FWVER_LEN);
+	uf_state.fwver[UF_FWVER_LEN - 1] = 0;
 	/* A plan laid out by a different build is dropped, not misread */
 	if ((uf_state.flags & UF_SF_PLAN) && (((uint16_t)r[6] << 8) | r[7]) == sizeof(uf_plan))
 		uf_memcpy((UF_X uint8_t *)&uf_plan, r + PLAN_OFF, sizeof(uf_plan));

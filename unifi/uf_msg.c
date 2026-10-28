@@ -193,7 +193,11 @@ uint16_t uf_disc_build(UF_X uint8_t * UF_X buf) UF_BANKED
 		for (i = 0; i < n; i++)
 			put((uint8_t)uf_self.hostname[i]);
 	}
-	tlv_c(0x16, UNIFI_VERSION);
+	for (n = 0; uf_self.version[n] && n < UF_FWVER_LEN; n++)
+		;
+	tlv(0x16, n);
+	for (i = 0; i < n; i++)
+		put((uint8_t)uf_self.version[i]);
 	tlv_c(0x15, UNIFI_MODEL);
 	tlv(0x13, 12);
 	mac(uf_self.mac, 0);
@@ -260,7 +264,7 @@ uint16_t uf_inform_build(UF_X uint8_t * UF_X buf, UF_X uint16_t max) UF_BANKED
 	key("model"); cstr(UNIFI_MODEL);
 	key("model_display"); cstr(UNIFI_MODEL_DISPLAY);
 	lit(",\"type\":\"usw\"");
-	key("version"); cstr(UNIFI_VERSION);
+	key("version"); put('"'); xstr(uf_self.version); put('"');
 	key("serial"); put('"'); mac(uf_self.mac, 0); put('"');
 	key("num_port"); u32(UF_NPORTS);
 	key("state"); u32(uf_self.adopted ? 2 : 1);

@@ -472,6 +472,7 @@ void uf_factory_reset(void) __banked
 	memset(uf_state.authkey, 0, 16);
 	memset(uf_state.ctrl_ip, 0, 4);
 	uf_state.cfgversion[0] = 0;
+	uf_state.fwver[0] = 0;
 	print_string(uf_store_commit() ? "UniFi adoption cleared\n" : "UniFi adoption could not be cleared\n");
 }
 

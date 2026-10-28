@@ -13,6 +13,7 @@
 #define UF_MAX_VLANS	32
 #define UF_NAME_LEN	32
 #define UF_CFGVER_LEN	33
+#define UF_FWVER_LEN	20	/* reported firmware version, e.g. "2.1.8.971" */
 #define UF_UNKNOWN_KEYS	4
 #define UF_UNKNOWN_LEN	24
 
