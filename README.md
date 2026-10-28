@@ -120,6 +120,20 @@ ip dhcp
 The first three lines are the address used when no DHCP server answers within a minute (the same
 address as the stock firmware); `ip dhcp` takes an address from your router.
 
+## Firmware updates from UniFi
+
+The switch tells UniFi that it is a USWED35 at firmware 2.1.8.971, and that it only accepts firmware 99.0.0
+or newer. UniFi therefore never offers it Ubiquiti's firmware ("Upgrade unavailable" in the controller
+log), also with automatic updates turned on. Ubiquiti's firmware is for different hardware and would not
+run on this switch.
+
+If UniFi asks the switch to upgrade anyway, the switch installs nothing, keeps running this firmware and
+reports the requested version, so UniFi considers the update done instead of retrying it. Both cases were
+tested with a UCG Ultra.
+
+Updates of this firmware (new releases here) are installed in the switch's own web interface, see
+"Everyday tasks".
+
 ## Reset button
 
 The reset hole is on the back, next to the power input. Use a paperclip:

@@ -62,12 +62,19 @@ configuration and also clears the UniFi adoption, keeping the GCM nonce epoch.
 - Forget/remove from the controller resets the five ports to VLAN 1 untagged.
 - Telemetry: link, speed and packet/error counters per port.
 
+## Firmware upgrades
+
+The device reports `required_version` 99.0.0 (`UNIFI_REQUIRED_VERSION`); the controller only offers
+firmware at least that new, so it does not push USWED35 firmware. If an upgrade request arrives anyway
+(GCM-authenticated, adopted), nothing is downloaded: the requested version is stored in flash and
+reported from then on. Forget and the factory reset return to the built-in `UNIFI_VERSION`.
+
 ## Safety
 
 - Configuration is only applied from responses whose GCM tag verified.
 - The uplink guard refuses configurations that would disable the uplink or take the untagged
   management VLAN off it. Only management VLAN 1 is supported.
-- Firmware upgrade and command requests from the controller are logged and ignored.
+- Controller commands are logged and ignored; firmware upgrades are handled as described above.
 - Adoption state uses two flash sectors (0x180000, 0x181000) with CRC and sequence numbers; a
   sector holding data that is not the agent's is never erased.
 - GCM nonces are a stored epoch (written before the first GCM message of each boot) plus a counter.
