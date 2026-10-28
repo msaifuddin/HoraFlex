@@ -16,3 +16,8 @@ build/
 !test/stub/version.h
 .vscode
 /release/
+unifi/test/unit
+unifi/test/hostrun
+unifi/test/*.dSYM/
+unifi/test/inform_sample.json
+unifi/test/tnbu_ours.txt
