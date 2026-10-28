@@ -20,9 +20,10 @@ No extra hardware, Raspberry Pi or helper service is needed.
 
 ## The hardware
 
-<img src="https://img.staticdj.com/48c3f76ba3bdab4ad04a21371f27317c_2056x.jpg" alt="Horaco HC-SWTGW215AS" width="360">
-
-<sub>Horaco HC-SWTGW215AS (image: HORACO)</sub>
+<p align="center">
+  <img src="https://img.staticdj.com/48c3f76ba3bdab4ad04a21371f27317c_2056x.jpg" alt="Horaco HC-SWTGW215AS" width="360"><br>
+  <sub>Horaco HC-SWTGW215AS (image: HORACO)</sub>
+</p>
 
 **Model: Horaco HC-SWTGW215AS**, "2.5G Web Managed Switch": 5 x 2.5GbE RJ45 + 1 x 10G SFP+,
 metal case, port 6 labelled "SFP+(10G)". The one used here was bought from
@@ -57,15 +58,15 @@ The USW-Flex-2.5G-5 needs UniFi Network 8.6.9 or newer.
 
 The switch's own web page after installing:
 
-<img src="doc/images/horaflex/ui-dash.png" alt="Status page" width="640">
+<p align="center"><img src="doc/images/horaflex/ui-dash.png" alt="Status page" width="640"></p>
 
 <details>
 <summary>More pages: ports, VLANs, system, firmware update</summary>
 
-<img src="doc/images/horaflex/ui-ports.png" alt="Ports page" width="640">
-<img src="doc/images/horaflex/ui-vlan.png" alt="VLAN page" width="640">
-<img src="doc/images/horaflex/ui-system.png" alt="System page" width="640">
-<img src="doc/images/horaflex/ui-fw.png" alt="Firmware update page" width="640">
+<p align="center"><img src="doc/images/horaflex/ui-ports.png" alt="Ports page" width="640"></p>
+<p align="center"><img src="doc/images/horaflex/ui-vlan.png" alt="VLAN page" width="640"></p>
+<p align="center"><img src="doc/images/horaflex/ui-system.png" alt="System page" width="640"></p>
+<p align="center"><img src="doc/images/horaflex/ui-fw.png" alt="Firmware update page" width="640"></p>
 
 </details>
 
