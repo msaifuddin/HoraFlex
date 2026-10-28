@@ -77,6 +77,19 @@ struct dhcp_pkt {
 
 __xdata uint32_t long_value;
 
+/* Seconds without a lease before the static fallback address is used */
+#define DHCP_FALLBACK_SECS	60
+/* While on the fallback address, ask again every minute for a few seconds */
+#define DHCP_PROBE_SECS		60
+#define DHCP_PROBE_LEN		6
+
+static void dhcp_set_fallback(void)
+{
+	uip_ipaddr(&uip_hostaddr, dhcp_state.fb_ip[0], dhcp_state.fb_ip[1], dhcp_state.fb_ip[2], dhcp_state.fb_ip[3]);
+	uip_ipaddr(&uip_draddr, dhcp_state.fb_gw[0], dhcp_state.fb_gw[1], dhcp_state.fb_gw[2], dhcp_state.fb_gw[3]);
+	uip_ipaddr(&uip_netmask, dhcp_state.fb_mask[0], dhcp_state.fb_mask[1], dhcp_state.fb_mask[2], dhcp_state.fb_mask[3]);
+}
+
 
 void dhcp_print_ip(__xdata uint8_t *a)
 {
@@ -345,6 +358,8 @@ void parse_dhcp(void)
 		if (!dhcp_state.renewal)
 			dhcp_state.renewal = 60;
 		dhcp_state.state = DHCP_LEASING;
+		dhcp_state.fb_active = 0;
+		dhcp_state.unleased = 0;
 		dhcp_state.ticks = SYS_TICK_HZ;
 		dhcp_state.dhcp_timer = dhcp_state.renewal > 0xffff ? 0xffff : dhcp_state.renewal;
 	}
@@ -359,6 +374,16 @@ void dhcp_start(void) __banked
 	 * runs the state machine too and the timers count down once per socket. */
 	if (dhcp_state.state != DHCP_OFF)
 		dhcp_stop();
+	/* RFC 2131: a client without a lease asks from 0.0.0.0. Sending from the
+	 * old static address gets the request dropped by routers that check the
+	 * source (UniFi gateways do). That address is kept as the fallback. */
+	memcpy(dhcp_state.fb_ip, (__xdata void *)uip_hostaddr, 4);
+	memcpy(dhcp_state.fb_gw, (__xdata void *)uip_draddr, 4);
+	memcpy(dhcp_state.fb_mask, (__xdata void *)uip_netmask, 4);
+	dhcp_state.fb_valid = (dhcp_state.fb_ip[0] | dhcp_state.fb_ip[1] | dhcp_state.fb_ip[2] | dhcp_state.fb_ip[3]) != 0;
+	dhcp_state.fb_active = 0;
+	dhcp_state.unleased = 0;
+	uip_ipaddr(&uip_hostaddr, 0, 0, 0, 0);
 	uip_ipaddr(server, 255,255,255,255);
 	dhcp_state.conn = uip_udp_new(&server, HTONS(DHCPC_SERVER_PORT));
 	dhcp_state.current_ip[0] = dhcp_state.current_ip[1] = dhcp_state.current_ip[2] = dhcp_state.current_ip[3] = 0;
@@ -404,6 +429,21 @@ void dhcp_callback(uint16_t lport) __banked
 //			print_string("Timer: "); print_short(dhcp_state.ticks); write_char(' '); print_short(dhcp_state.dhcp_timer);
 			dhcp_state.dhcp_timer--;
 			dhcp_state.ticks = SYS_TICK_HZ;
+			if (dhcp_state.state != DHCP_LEASING && dhcp_state.fb_valid) {
+				dhcp_state.unleased++;
+				if (dhcp_state.unleased == DHCP_FALLBACK_SECS) {
+					print_string("DHCP: no lease, using the static address\n");
+					dhcp_state.fb_active = 1;
+					dhcp_set_fallback();
+				} else if (dhcp_state.fb_active && dhcp_state.unleased % DHCP_PROBE_SECS == 0) {
+					uip_ipaddr(&uip_hostaddr, 0, 0, 0, 0);
+					dhcp_state.state = DHCP_START;
+				} else if (dhcp_state.fb_active && dhcp_state.unleased % DHCP_PROBE_SECS == DHCP_PROBE_LEN) {
+					dhcp_set_fallback();
+				}
+				if (dhcp_state.unleased > 60000)
+					dhcp_state.unleased = DHCP_FALLBACK_SECS + 1;
+			}
 		}
 		if (!dhcp_state.dhcp_timer) {
 			switch (dhcp_state.state) {

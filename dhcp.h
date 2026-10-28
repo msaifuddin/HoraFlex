@@ -34,6 +34,13 @@ struct dhcp_state {
 	uint32_t lease;
 	uint32_t rebind;
 	uint32_t renewal;
+	/* Static address set before "ip dhcp", used while no lease is held */
+	uint8_t fb_ip[4];
+	uint8_t fb_gw[4];
+	uint8_t fb_mask[4];
+	uint8_t fb_valid;
+	uint8_t fb_active;
+	uint16_t unleased;	/* seconds without a lease */
 
 	__xdata struct uip_udp_conn *conn;
 };
