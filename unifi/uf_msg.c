@@ -270,7 +270,8 @@ uint16_t uf_inform_build(UF_X uint8_t * UF_X buf, UF_X uint16_t max) UF_BANKED
 	key("state"); u32(uf_self.adopted ? 2 : 1);
 	key("adopted"); bool_(uf_self.adopted);
 	key("default"); bool_(!uf_self.adopted);
-	lit(",\"discovery_response\":true,\"required_version\":\"5.0.0\"");
+	lit(",\"discovery_response\":true");
+	key("required_version"); cstr(UNIFI_REQUIRED_VERSION);
 	key("cfgversion"); put('"');
 	if (uf_self.cfgversion[0])
 		xstr(uf_self.cfgversion);

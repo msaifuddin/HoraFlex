@@ -14,6 +14,15 @@
 #ifndef UNIFI_MODEL_DISPLAY
 #define UNIFI_MODEL_DISPLAY	"Switch Flex Mini 2.5G 5"
 #endif
+/*
+ * Reported as required_version. The controller offers a firmware upgrade only
+ * when the new firmware is at least this version ("Upgrade unavailable ...
+ * bundled(x) < required(y)"), so a version Ubiquiti will not reach keeps it
+ * from pushing USWED35 firmware to this switch at all.
+ */
+#ifndef UNIFI_REQUIRED_VERSION
+#define UNIFI_REQUIRED_VERSION	"99.0.0"
+#endif
 #ifndef UNIFI_PORT_COUNT
 #define UNIFI_PORT_COUNT	5
 #endif
