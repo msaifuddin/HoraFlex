@@ -32,7 +32,7 @@ UniFi Network 10.6.109:
 | Port names | tested |
 | Reboot and firmware update without re-adoption | tested |
 | Out of the box: DHCP, finds the UniFi gateway, adopt | tested |
-| Reset button: factory reset (hold > 10 s) | tested; the 3-10 s restart is not |
+| Reset button: restart (hold 3-10 s) and factory reset (hold > 10 s) | tested |
 | Forget / remove in UniFi (ports return to a plain switch) | tested |
 | Link state, speed and packet counters per port | tested |
 | 2.5G links, SFP+ port | not tested (the SFP+ is not shown in UniFi and keeps forwarding on VLAN 1) |
