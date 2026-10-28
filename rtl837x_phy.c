@@ -1,0 +1,674 @@
+/*
+ * This is a driver implementation for the Internal PHYs and RTL8221/RTL8224 PHYs
+ * for the RTL827x platform
+ * This code is in the Public Domain
+ */
+
+#define REGDBG
+
+// Phy ID of the external RTL8224 PHY.
+#define RTL8224_PHY_ID 0x00
+
+#include <stdint.h>
+#include "rtl837x_common.h"
+#include "rtl837x_sfr.h"
+#include "rtl837x_regs.h"
+#include "rtl837x_phy.h"
+#include "phy.h"
+#include "machine.h"
+
+#pragma codeseg BANK2
+#pragma constseg BANK2
+
+extern __code const uint16_t bit_mask[16];
+extern __code const struct machine machine;
+extern __xdata struct machine_runtime machine_detected;
+extern volatile __xdata uint32_t ticks;
+extern __xdata uint32_t rtl8224_release_tick;
+
+__xdata struct phy_settings phy_settings;
+
+// SDS-settings for RTL8224 first SerDes which is connected to the RTL837x-SOC.
+// Array contrains register-value, and SDS-CMD, which already encodes (sds_index, page, reg).
+// This array is used in phy_config_8224().
+//
+// Note: Adding `Swapping the RX for N-devices`-setting on the end of the array, didn't work.
+// Setting will apply but still no packets flow.
+// Settings are `0x2000, 0xc10c`,
+__code const uint16_t rtl8224_sds0_setttings[42] = {
+	// SDS_DATA, SDS_CMD
+	0x4480, 0xc842,
+	0x0400, 0xc9c2,
+	0x6d02, 0xcc42,
+	0x424e, 0xcdc2,
+	0x0002, 0xcec2,
+	0x1390, 0xce6c,
+	0x003f, 0xca6c,
+	0x0200, 0xc86c,
+	0x0080, 0xc25c,
+	0x0408, 0xc35c,
+	0x020d, 0xc3dc,
+	0x0601, 0xc4dc,
+	0x222c, 0xc5dc,
+	0xa217, 0xc65c,
+	0xfe40, 0xc6dc,
+	0xf5c1, 0xcadc,
+	0x0443, 0xcb5c,
+	0xabb0, 0xcedc,
+	0x5078, 0xc90c,
+	0xc45c, 0xc18c,
+	0, 0
+};
+
+void rtl8224_phy_enable(void) __banked
+{
+	uint16_t pval;
+
+	// p001e.0a90:00f3 R02f8-000000f3 R02f4-000000fc P000001.1e000a90:00fc
+	print_string("\r\nrtl8224_phy_enable called\r\n");
+	phy_read(RTL8224_PHY_ID, PHY_MMD30, RTL837X_CFG_PHY_MDI_REVERSE);
+	pval = SFR_DATA_U16;
+
+	// PHY Initialization:
+	REG_WRITE(0x2f8, 0, 0, pval >> 8, pval);
+	pval &= 0xfff0;
+	pval |= 0x0c;
+	REG_WRITE(0x2f4, 0, 0, pval >> 8, pval);
+
+	phy_write(RTL8224_PHY_ID, PHY_MMD30, RTL837X_CFG_PHY_MDI_REVERSE, pval);
+	delay(50);
+
+	if (machine_detected.isN) {
+		print_string("  N-settings");
+		// TX_POLARITY_SWAP
+		rtl8224_write_reg_u16(RTL837X_CFG_PHY_TX_POLARITY_SWAP, 0x596A);
+	}
+
+	print_string("\r\nrtl8224_phy_enable done\r\n");
+}
+
+
+void phy_config_8261(uint8_t phy, uint8_t sds) __banked
+{
+	print_string("phy_config_8261: phy "); print_byte(phy);
+	print_string(" sds "); print_byte(sds); write_char('\n');
+	phy_write(phy, PHY_MMD30, 0x141, 0x80aa);  // P000008.1e000141:80aa P000008.1e000143:8c07 p031e.0143:0c07
+	phy_write(phy, PHY_MMD30, 0x143, 0x8c07);
+	phy_read(phy, PHY_MMD30, 0x143);
+	print_phy_data();
+	phy_write(phy, PHY_MMD30, 0x141, 0x5078); // P000008.1e000141:5078 P000008.1e000143:8c86 p031e.0143:0c86
+	phy_write(phy, PHY_MMD30, 0x143, 0x8c86);
+	phy_read(phy, PHY_MMD30, 0x143);
+	print_phy_data();
+	phy_read(phy, PHY_MMD30, 0x105);
+	print_phy_data(); // p031e.0105:0000
+
+	phy_write(phy, PHY_MMD30, 0xe1, 0x00); // P000008.1e0000e1:0000
+	phy_write(phy, PHY_MMD30, 0xe3, 0x00); // P000008.1e0000e3:0000
+	phy_write(phy, PHY_MMD30, 0xe4, 0x01); // P000008.1e0000e4:0001
+	phy_write(phy, PHY_MMD30, 0xe0, 0x2f); // P000008.1e0000e0:002f
+
+	// The following are actually bit-ops:
+	phy_write(phy, PHY_MMD31, 0xa442, 0x8418); // p031f.a442:0418 P000008.1f00a442:8418
+	phy_write(phy, PHY_MMD31, 0xa448, 0x07a0); // p031f.a448:07a0 P000008.1f00a448:07a0
+	phy_write(phy, PHY_MMD31, 0xa43a, 0x003f); // p031f.a43a:0030 P000008.1e0000e2:003f
+
+	phy_write(phy, PHY_MMD31, 0xc800, 0x5a02); // P000008.1f00c800:5a02
+
+	phy_write(phy, PHY_MMD30, 0x01ee, 0x5a02); // p031e.01ee:5a00 P000008.1e0001ee:5a02
+	phy_write(phy, PHY_MMD30, 0x0230, 0x0002); // p031e.0230:0000 P000008.1e000230:0002
+	phy_write(phy, PHY_MMD31, 0xc802, 0x0073); // p031f.c802:0000 P000008.1f00c802:0073
+	phy_write(phy, PHY_MMD30, 0x01ef, 0xe004); // p031e.01ef:0004 P000008.1e0001ef:e004
+	delay(20);
+	phy_write(phy, PHY_MMD30, 0x01ef, 0x0004); // p031e.01ef:e004 P000008.1e0001ef:0004
+	delay(20);
+	phy_write(phy, PHY_MMD30, 0x0230, 0x01c2); // p031e.0230:01c2 P000008.1e000230:0002
+	
+	phy_read(phy, PHY_MMD30, 0x103);
+	print_phy_data(); // p031e.0103:8261
+
+	phy_write(phy, PHY_MMD30, 0x01c8, 0x0104); // p031e.01c8:0104 P000008.1e0001c8:0104
+	phy_write(phy, PHY_MMD30, 0x01c9, 0x8080); // p031e.01c9:8080 P000008.1e0001c9:8080
+	phy_write(phy, PHY_MMD30, 0x01ca, 0x2020); // p031e.01ca:2020 P000008.1e0001ca:2020
+	phy_write(phy, PHY_MMD30, 0x0105, 0x0000); // p031e.0105:0000 P000008.1e000105:0000
+	phy_write(phy, PHY_MMD30, 0x00c2, 0x880d); // p031e.00c2:880d P000008.1e0000c2:880d
+	phy_write(phy, PHY_MMD30, 0x03f1, 0x0072); // p031e.03f1:0072 P000008.1e0003f1:0072
+	phy_write(phy, PHY_MMD30, 0x02a2, 0x0010); // p031e.02a2:0010 P000008.1e0002a2:0010
+	phy_write(phy, PHY_MMD30, 0x00c1, 0x0127); // p031e.00c1:0127 P000008.1e0000c1:0127
+	phy_write(phy, PHY_MMD30, 0x00c1, 0x0167); // p031e.00c1:0127 P000008.1e0000c1:0167
+
+	sds_write_v(sds, 0x21, 0x00, 0x4096); // Q002100:4906
+	sds_write_v(sds, 0x36, 0x05, 0x4000); // Q003605:4000
+	sds_write_v(sds, 0x1f, 0x02, 0x001f); // Q001f02:001f
+
+	phy_read(phy, 0x01, 0x0000);
+	print_phy_data(); // p0301.0000:2040
+
+	phy_write(phy, 0x01, 0x0000, 0x2040);  // P000008.01000000:2040
+	delay(20);
+
+	sds_write_v(sds, 0, 0, 0x1603); // Q000000:1603
+	delay(20);
+	sds_write_v(sds, 0, 0, 0x1601); // Q000000:1601
+	delay(20);
+	sds_write_v(sds, 0, 0, 0x1603); //Q000000:1603
+	delay(20);
+	// r6330:00005555 R6330-00005555 r7b20:000003ed R7b20-000003ed
+	print_string("\r\nphy_config_8261 done\n");
+}
+
+
+void phy_config(uint8_t phy) __banked
+{
+	print_string("\r\nphy_config: ");
+	write_char('0' + phy);
+
+	delay(20);
+	// PHY configuration: External 8221B?
+	//	p081e.75f3:ffff P000100.1e0075f3:fffe
+	phy_modify(phy, PHY_MMD30, 0x75f3, 0x0001, 0x0000);
+	delay(20);
+
+	//	p081e.697a:ffff P000100.1e00697a:ffc1 / p031e.697a:0003 P000008.1e00697a:0001
+	// SERDES OPTION 1 Register (MMD 30.0x6) bits 0-5: 0x01: Set HiSGMII+SGMII
+	phy_modify(phy, PHY_MMD30, 0x697a, 0x003f, 0x0001);
+	delay(20);
+
+	//	p031f.a432:0811 P000008.1f00a432:0831
+	// PHYCR2 PHY Specific Control Register 2, MMD 31. 0xA432), set bit 5: enable EEE
+	phy_modify(phy, PHY_MMD31, PHY_MMD31_PHYCR2, 0x0000, 0x0020);
+
+	//	p0307.003e:0000 P000008.0700003e:0001
+	// EEE avertisment 2 register MMMD 7.0x003e, set bit 0: 2.5G has EEE capability
+	phy_modify(phy, PHY_MMD_AN, PHY_EEE_ADV2, 0x0000, 0x0001);
+	delay(20);
+
+	//	p031f.a442:043c P000008.1f00a442:0430
+	// Unknown, but clear bits 2/3
+	phy_modify(phy, PHY_MMD31, 0xa442, 0x000c, 0x0000);
+	delay(20);
+
+	// P000100.1e0075b5:e084
+	phy_write(phy, PHY_MMD30, 0x75b5, 0xe084);
+	delay(20);
+
+	//	p031e.75b2:0000 P000008.1e0075b2:0060
+	// set bits 5/6
+	phy_modify(phy, PHY_MMD30, 0x75b2, 0x0000, 0x0060);
+	delay(20);
+
+	//	p081f.d040:ffff P000100.1f00d040:feff
+	// LCR6 (LED Control Register 6, MMD 31.D040), set bits 8/9 to 0b10
+	phy_modify(phy, PHY_MMD30, 0xd040, 0x0300, 0x0200);
+	delay(20);
+
+	//	p081f.a400:ffff P000100.1f00a400:ffff, then: p081f.a400:ffff P000100.1f00a400:bfff
+	//	p031f.a400:1040 P000008.1f00a400:5040, then: p031f.a400:5040 P000008.1f00a400:1040
+	// FEDCR (Fast Ethernet Duplex Control Register, MMD 31.0xA400)
+	// Set bit 14, sleep, then clear again, according to the datasheet these bits are reserved
+	phy_modify(phy, PHY_MMD31, PHY_MMD31_FEDCR, 0x0000, 0x4000);
+	delay(20);
+
+	phy_modify(phy, PHY_MMD31, PHY_MMD31_FEDCR, 0x4000, 0x0000);
+	delay(20);
+
+	print_string("\r\n  phy config done\r\n");
+}
+
+
+void rtl8224_wait_ready(void) __banked
+{
+	do {
+		rtl8224_read_reg_u16(RTL837X_REG_CHIP_ID + 1);
+		if (SFR_DATA_U16 == 0x8224)
+			return;
+	} while ((ticks - rtl8224_release_tick) < (SYS_TICK_HZ * 5 / 2));
+	print_string("\r\nRTL8224 not responding\r\n");
+}
+
+void phy_config_8224(void) __banked
+{
+	uint16_t pval;
+	uint16_t tries;
+	print_string("\r\nphy_config_8224 called\r\nRTL8224 ID: ");
+
+	// Print RTL8224 chip id
+	rtl8224_read_reg_u16(RTL837X_REG_CHIP_ID + 1);
+	print_short(SFR_DATA_U16);
+	rtl8224_read_reg_u16(RTL837X_REG_CHIP_ID);
+	print_byte(SFR_DATA_U16 >> 8);
+	print_byte(SFR_DATA_U16);
+	write_char('\n');
+
+	// p001e.7b20:0bff R02f8-00000bff R02f4-00000bed P000001.1e007b20:0bed
+	phy_read(RTL8224_PHY_ID, PHY_MMD30, 0x7b20);
+	pval = SFR_DATA_U16;
+
+	REG_WRITE(0x2f8, 0, 0, pval >> 8, pval);
+	pval &= 0x0fe0;
+	pval |= 0x000d;
+	REG_WRITE(0x2f4, 0, 0, pval >> 8, pval);
+
+	phy_write(RTL8224_PHY_ID, PHY_MMD30, 0x7b20, pval);
+
+	uint8_t i = 0;
+	while (rtl8224_sds0_setttings[i]) {
+		rtl8224_write_reg_u16(RTL837X_SDS_INDACS_WRITE_DATA, rtl8224_sds0_setttings[i]);
+		i++;
+		rtl8224_write_reg_u16(RTL837X_SDS_INDACS_CMD, rtl8224_sds0_setttings[i]);
+		i++;
+		tries = 0xffff;
+		do {
+			rtl8224_read_reg_u16(0x3f8);
+		} while ((SFR_DATA_8 & 0x80) && --tries);
+		if (SFR_DATA_8 & 0x80)
+			print_string("\r\nRTL8224 SerDes access timed out\r\n");
+	}
+
+	print_string("\r\nphy_config_8224 done\r\n");
+}
+
+
+/*
+ * Set Speed of a PHY
+ * See e.g. RTL8221B datasheet
+ * duplex: 0: half, 1: full, 2: both
+ */
+void phy_set_speed(void) __banked
+{
+	uint16_t v;
+
+	print_string("Setting port "); print_phys_port(phy_settings.port);
+	if (machine.n_10g && phy_settings.port == 3)
+		phy_settings.is10g_port = 1;
+	if (machine.n_10g == 2 && phy_settings.port == 8)
+		phy_settings.is10g_port = 1;
+	if (phy_settings.speed == PHY_OFF) {
+		print_string(" to disabled");
+	} else {
+		print_string(" to speed ");
+		switch(phy_settings.speed) {
+		case PHY_SPEED_AUTO:
+			print_string("auto");
+			if (phy_settings.is10g_port)
+				print_string (" (10g)");
+			break;
+		case PHY_SPEED_10M:
+			print_string("10M");
+			if (phy_settings.duplex)
+				print_string(" full duplex");
+			else
+				print_string(" half duplex");
+			break;
+		case PHY_SPEED_100M:
+			print_string("100M");
+			if (phy_settings.duplex)
+				print_string(" full duplex");
+			else
+				print_string(" half duplex");
+			break;
+		case PHY_SPEED_1G:
+			print_string("1G");
+			break;
+		case PHY_SPEED_2G5:
+			print_string("2G5");
+			break;
+		default:
+			print_string("UNKNOWN");
+			break;
+		}
+	}
+	write_char('\n');
+
+	phy_read(phy_settings.port, PHY_MMD31, 0xa610);
+	v = SFR_DATA_U16;
+	if (phy_settings.speed == PHY_OFF) {
+		phy_write(phy_settings.port, PHY_MMD31, 0xa610, v | 0x0800);
+		return;
+	}
+	// Port is on, make sure of it:
+	if (v & 0x0800)
+		phy_write(phy_settings.port, PHY_MMD31, 0xa610, v & 0xf7ff);
+
+	if (phy_settings.speed == PHY_SPEED_AUTO) {
+			// AN Advertisement Register (MMD 7.0x0010)
+			// bits 0-4: 0x1 (802.3 supported), Extended Next Page format used
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0x15e1);
+			// Multi-GBASE-TBASE-T AN Control 1 Register (MMD 7.0x0020)
+			// bit 14: SLAVE, bit 13: Multi-Port device, bit 8: 2.5GBit available, 1: LD
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6081);
+			// GBCR (1000Base-T Control Register, MMD 31.0xA412)
+			if (phy_settings.is10g_port)
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0000, 0x0e00);
+			else
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0000, 0x0200);
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL, 0x3200);	// Restart AN
+	} else {
+		// AN Control Register (MMD 7.0x0000)
+		phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL, 0x2000);	// Clear bit 12: No Autoneg, Set Extended Pages (bit 13)
+		if (phy_settings.speed == PHY_SPEED_10M) {
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6001);
+			uint16_t adv10;
+			if (phy_settings.duplex == PHY_DUPLEX_HALF)
+				adv10 = 0x1421;
+			else if (phy_settings.duplex == PHY_DUPLEX_FULL)
+				adv10 = 0x1441;
+			else
+				adv10 = 0x1461;
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, adv10);
+			phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0200, 0x0000);
+		} else if (phy_settings.speed == PHY_SPEED_100M) {
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6001);
+			uint16_t adv100;
+			if (phy_settings.duplex == PHY_DUPLEX_HALF)
+				adv100 = 0x1481;
+			else if (phy_settings.duplex == PHY_DUPLEX_FULL)
+				adv100 = 0x1501;
+			else
+				adv100 = 0x1581;
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, adv100);
+			phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0200, 0x0000);
+		} else {
+			// AN Advertisement Register (MMD 7.0x0010)
+			// bits 0-4: 0x1 (802.3 supported), bit 10: PAUSE,
+			// Extended Next Page format used
+			phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0x1401);
+			if (phy_settings.speed == PHY_SPEED_1G) {
+				// Multi-GBASE-TBASE-T AN Control 1 Register (MMD 7.0x0020)
+				// bit 14: SLAVE, bit 13: Multi-Port device, 1: LD Loop timin enableed
+				phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6001);
+				// GBCR (1000Base-T Control Register, MMD 31.0xA412)
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0000, 0x0200);
+			} else if (phy_settings.speed == PHY_SPEED_2G5) {
+				// Multi-GBASE-TBASE-T AN Control 1 Register (MMD 7.0x0020)
+				// bit 14: SLAVE, bit 13: Multi-Port device, bit 8: 2.5GBit available, 1: LD Loop timin enableed
+				phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6081);
+				// GBCR (1000Base-T Control Register, MMD 31.0xA412)
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0200, 0x0000);
+			} else if (phy_settings.speed == PHY_SPEED_5G) {
+				phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6081);
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0400, 0x0000);
+			} else if (phy_settings.speed == PHY_SPEED_10G) {
+				phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL, 0x6081);
+				phy_modify(phy_settings.port, PHY_MMD31, PHY_MMD31_GBCR, 0x0800, 0x0000);
+			}
+		}
+		phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL, 0x3000);	// Enable AN
+	}
+}
+
+
+void phy_set_duplex(void) __banked
+{
+	uint16_t v;
+
+	print_string("Setting port "); print_phys_port(phy_settings.port);
+	if (phy_settings.duplex)
+		print_string(" to full duplex");
+	else
+		print_string(" to half duplex");
+	write_char('\n');
+
+	phy_read(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL);
+	v = SFR_DATA_U16;	
+	if (!(v & 0x1000)) { // AN disabled, we are in forced mode
+		phy_read(phy_settings.port, PHY_MMD31, PHY_MMD31_FEDCR);
+		v = SFR_DATA_U16;
+		if (phy_settings.duplex)
+			v |= 0x0100;
+		else
+			v &= 0xfeff;
+		phy_write(phy_settings.port, PHY_MMD31, PHY_MMD31_FEDCR, v);
+		return;
+	}
+	// Disable AN
+	phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL, 0x2000);
+	phy_read(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV);
+	v = SFR_DATA_U16;
+	if (v & 0x0060) {
+		if (phy_settings.duplex)
+			phy_modify(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0xffbf, 0x0040);
+		else
+			phy_modify(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0xffdf, 0x0020);
+	}
+	if (v & 0x0180) {
+		if (phy_settings.duplex)
+			phy_modify(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0xfeff, 0x0100);
+		else
+			phy_modify(phy_settings.port, PHY_MMD_AN, PHY_ANEG_ADV, 0xff7f, 0x0080);
+	}
+	// Restart AN
+	phy_write(phy_settings.port, PHY_MMD_AN, PHY_ANEG_CTRL, 0x3000);
+}
+
+
+void phy_show(uint8_t port) __banked
+{
+	uint16_t v;
+
+	// The actual PHY speed is in a Realtek propriatary register
+	print_string("\nLink speed: ");
+	phy_read(port, PHY_MMD31, PHY_MMD31_PHYSR);
+	v = SFR_DATA_U16;
+	switch(((v & 0x0600) >> 7) | ((v & 0x0030) >> 4)) {
+	case 0:
+		print_string("10M");
+		break;
+	case 1:
+		print_string("100M");
+		break;
+	case 2:
+		print_string("1000M");
+		break;
+	case 3:
+		print_string("500M");
+		break;
+	case 4:
+		print_string("10G");
+		break;
+	case 5:
+		print_string("2500M");
+		break;
+	case 6:
+		print_string("5G");
+		break;
+	default:
+		print_string("Down");
+	}
+
+	if ( (((v & 0x0600) >> 7) | ((v & 0x0030) >> 4)) <= 6) { // Link is up
+		if (v & 0x8)
+			print_string(" full duplex");
+		else
+			print_string(" half duplex");
+	}
+
+	phy_read(port,  PHY_MMD_AN, PHY_ANEG_CTRL);
+	v = SFR_DATA_U16;
+	if (!(v & 0x1000)) { // AN disabled, we are in forced mode
+		phy_read(port, PHY_MMD_PMAPMD, 0);
+		v = SFR_DATA_U16;
+		print_string("\nForced speed: "); print_short(v); write_char('\n');
+		uint8_t s1 = 0x00;
+		if ((uint8_t)v & 0x40)
+			s1 = 0x2;
+		if (v & 0x2000)
+			s1 |= 0x1;
+		uint8_t s2 = ((uint8_t)v >> 2) & 0xf;
+		switch(s1 & 0x3) {
+		case 0:
+			print_string("10M\n");
+			break;
+		case 1:
+			print_string("100M\n");
+			break;
+		case 2:
+			print_string("1000M\n");
+			break;
+		case 3:
+			switch (s2) {
+			case 0:
+				print_string("10G\n");
+				break;
+			case 6:
+				print_string("2500M\n");
+				break;
+			case 7:
+				print_string("5G\n");
+				break;
+			default:
+				print_string("Unknown\n");
+			}
+			break;
+		}
+		phy_read(port, PHY_MMD31, PHY_MMD31_FEDCR);
+		v = SFR_DATA_U16;
+		print_string("Duplex: "); print_short(v); print_string(" enabled: ");
+		if (v & 0x100)
+			print_string("yes");
+		else
+			print_string("no");
+		write_char('\n');
+
+	} else {
+		print_string("\nAN enabled, advertising:");
+		phy_read(port, PHY_MMD_AN, PHY_ANEG_ADV);
+		v = SFR_DATA_U16;
+		if (v & 0x0020)
+			print_string(" 10Base-Half");
+		if (v & 0x0040)
+			print_string(" 10Base-Full");
+		if (v & 0x0080)
+			print_string(" 100Base-Half");
+		if (v & 0x0100)
+			print_string(" 100Base-Full");
+		phy_read(port, PHY_MMD31, PHY_MMD31_GBCR);
+		v = SFR_DATA_U16;
+		if (v & 0x0200)
+			print_string(" 1000Base-Full");
+		phy_read(port, PHY_MMD_AN, PHY_ANEG_MGBASE_CTRL);
+		v = SFR_DATA_U16;
+		if (v & 0x0080)
+			print_string(" 2500BaseN-Full");
+		if (v & 0x0100)
+			print_string(" 5000BaseN-Full");
+		if (v & 0x1000)
+			print_string(" 10GBaseN-Full");
+	}
+	phy_read(port, PHY_MMD_AN, PHY_ANEG_LP_ABILITY);
+	v = SFR_DATA_U16;
+	print_string("\nLink Partner advertises:");
+	if (v & 0x0020)
+		print_string(" 10Base-Half");
+	if (v & 0x0040)
+		print_string(" 10Base-Full");
+	if (v & 0x0080)
+		print_string(" 100Base-Half");
+	if (v & 0x0100)
+		print_string(" 100Base-Full");
+	phy_read(port, PHY_MMD31, PHY_MMD31_GANLPAR);
+	v = SFR_DATA_U16;
+	if (v & 0x0400)
+		print_string(" 1000Base-Half");
+	if (v & 0x0800)
+		print_string(" 1000Base-Full");
+	phy_read(port, PHY_MMD_AN, PHY_ANEG_MGBASE_ADV);
+	v = SFR_DATA_U16;
+	if (v & 0x0020)
+		print_string(" 2500Base-Full");
+	if (v & 0x0040)
+		print_string(" 5000Base-Full");
+	if (v & 0x0800)
+		print_string(" 10GBase-Full");
+	write_char('\n');
+}
+
+
+void phy_reset(uint8_t port) __banked
+{
+	uint16_t v;
+	phy_read(port, PHY_MMD31, 0xa610);
+	v = SFR_DATA_U16;
+	// If PHY off, do nothing
+	if (v & 0x0800)
+		return;
+
+	// Disable PHY
+	phy_write(port, PHY_MMD31, 0xa610, v | 0x0800);
+	delay(2);
+	// Re-enable PHY
+	phy_write(port, PHY_MMD31, 0xa610, v & 0xf7ff);
+}
+
+// Read RTL8224 register.
+// Registers names are the same as on the RTL837x.
+// Reading only reads the lower 16-bit part of the 32-bit register.
+// When also needing read the upper 16-bits, use register address + 1.
+// Readed values it return via sfr-data.
+void rtl8224_read_reg_u16(uint16_t reg) __banked
+{
+	//	void phy_read(uint8_t phy_id, uint8_t dev_id, uint16_t reg)
+	// phy_read(RTL8224_PHY_ID, PHY_MMD30, reg);
+
+	SFR_SMI_REG_U16 = reg;		// c2, c2
+
+	SFR_SMI_PHY = RTL8224_PHY_ID;		// a5
+	SFR_SMI_DEV = (uint8_t)PHY_MMD30 << 3 | 2;	// c4
+
+	SFR_EXEC_GO = SFR_EXEC_READ_SMI;
+	do {
+	} while (SFR_EXEC_STATUS != 0);
+}
+
+// Write RTL8224 register.
+// Registers names are the same as on the RTL837x.
+// Writing only the lower 16-bit part of the 32-bit register.
+// When also needing to write the upper 16-bits, use register address + 1.
+void rtl8224_write_reg_u16(uint16_t reg, uint16_t val) __banked
+{
+	SFR_DATA_U16 = val;			    // SFR_A6, SFR_A7
+	SFR_SMI_REG_U16 = reg;			// SFR_C2, SFR_C3
+
+	//void phy_write(uint8_t phy_id, uint8_t dev_id, uint16_t reg, uint16_t v)
+	// phy_write(RTL8224_PHY_ID, PHY_MMD30, reg, val);
+
+	uint16_t phy_mask = bit_mask[RTL8224_PHY_ID];
+
+	SFR_SMI_PHYMASK = phy_mask;		// SFR_C5
+	SFR_SMI_DEV = (phy_mask >> 8) | PHY_MMD30 << 3 | 2; // SFR_C4: bit 2 can also be set for some option
+	SFR_EXEC_GO = SFR_EXEC_WRITE_SMI;
+	do {
+	} while (SFR_EXEC_STATUS != 0);
+}
+
+// // Modify RTL8224 register.
+// // Registers names are the same as on the RTL837x.
+// // Modifies only the lower 16-bit part of the 32-bit register.
+// // When also needing to modifie the upper 16-bits, use register address + 1.
+// void rtl8224_modify_reg_u16(uint16_t reg, uint16_t clear, uint16_t set) __banked
+// {
+// 	phy_read(RTL8224_PHY_ID, PHY_MMD30, reg);
+// 	uint16_t pval = SFR_DATA_U16;
+// 	pval &= ~(clear);
+// 	pval |= set;
+// 	phy_write(RTL8224_PHY_ID, PHY_MMD30, reg, pval);
+// }
+
+
+// Write to the RTL8224 SDS registers.
+void rtl8224_sds_write(uint16_t sds_cmd, __xdata uint16_t value) __banked
+{
+	// Wait for command bit is cleared
+	do {
+		rtl8224_read_reg_u16(RTL837X_SDS_INDACS_CMD);
+	} while (SFR_DATA_8 & 0x80);
+
+	rtl8224_write_reg_u16(RTL837X_SDS_INDACS_WRITE_DATA, value);
+
+	rtl8224_write_reg_u16(RTL837X_SDS_INDACS_CMD, sds_cmd);
+
+	// Wait for command bit is cleared
+	do {
+		rtl8224_read_reg_u16(RTL837X_SDS_INDACS_CMD);
+	} while (SFR_DATA_8 & 0x80);
+}

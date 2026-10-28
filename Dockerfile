@@ -1,0 +1,26 @@
+FROM debian:13-slim
+
+RUN apt-get update && apt-get install -y \
+    make \
+    gcc \
+    g++ \
+    bison \
+    flex \
+    libboost-dev \
+    patch \
+    bzip2 \
+    curl \
+    ca-certificates \
+    xxd \
+    python3 \
+    libjson-c-dev \
+    git \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# git safe.directory for mounted repos (Makefile uses git describe)
+RUN git config --global --add safe.directory /workspace
+
+WORKDIR /workspace
+
+CMD ["bash"]

@@ -1,0 +1,111 @@
+# The CPU Port
+
+The RTL827x provide a CPU Port for a NIC on the 8051 side of the SoC.
+
+## Receiving packets
+In order to receive packets on the ASIC side, bit 0 of RTL837X_REG_RX_CTRL
+(0x785c) must be set. Further bits in the register enable reception of various
+kinds of Ethernet frames. They should all be set in order for the firmware
+to decide what to do with them. To drop packets with incorrect Ethernet frame CRC
+already by the ASIC, clear bit 2 of this register.
+
+Packets are received by either polling the RTL837X_REG_RX_AVAIL register
+(0x7874), which will be > 0 if data is within a ring-buffer on the ASIC side
+of the SoC. Alternatively, an interrupt can be triggered (EX1).
+
+Data is transferred to the 8051 side by calling an SFR function. First, the
+frame header of the received frame will be copied over. For this, provide
+the destination memory location in xdata memory in SFRs B3 and B4 (little
+endian), the source location on the ASIC-side in SFRs B5/B6 (also little
+endian, found in RTL837X_REG_RX_RINGPTR, 0x787c) and execute the function
+by setting SFR_NIC_CTRL (B7) to the length to be transferred divided by 8,
+i.e. 1.
+
+The frame header has the following format:
+```
+SS xx xx xP LL LH xx xx
+SS:	8-bit sequence number
+P:	Port number
+LHLL:	Length of Ethernet frame (little endian)
+xx:	Unknown
+``` 
+
+Next, transfer the actual packet over by repeating the SFR function with a
+pointer to the frame on the ASIC directly after the frame header and a
+length as given by the length in the frame header + 7, again divided by 8.
+
+The RX ring's inclusive last slot is configured as `0x4ff`, giving a byte
+range of `0x0000` through `0x27ff`. If the descriptor occupies the last slot
+at `0x27f8`, its payload starts at `0x0000`, not `0x2800`. The RX copy code
+normalizes that starting address before DMA. It relies on the hardware to
+wrap transfers that start inside the ring and cross its end, as observed
+on SWTGW218AS. Programming an initial address of `0x2800` does not wrap
+and can instead read zeros or stale TX data outside the RX ring.
+
+Frame lengths are checked against `UIP_CONF_BUFFER_SIZE` before copying.
+DMA works in whole eight-byte units. `UIP_CONF_BUFFER_ALLOC_SIZE` rounds
+the backing storage up to the next complete word: 1,560 bytes for the
+1,556-byte logical frame limit. This padding allows a maximum-size frame
+to be transferred directly without a separate tail copy. The logical
+frame limit and advertised MSS are unchanged.
+
+The received frame will have an RTL proprietary Ethernet frame type of
+0x8899 (RRPC) where normally the frame type 0x0800 for IPv4 would be located.
+Further 6 bytes follow describing the frame, before the normal IPv4 data
+starts. A documentation can be found here:
+[TAG8899_COMMIT](https://github.com/torvalds/linux/commit/1521d5adfc2b557e15f97283c8b7ad688c3ebc40)
+
+After copying over header and frame, the frame is marked read in the ring
+buffer on the ASIC side by writing 0x1 to RTL837X_REG_RX_DONE (0x784c).
+
+## Transmissing packets
+Packets are transmitted by preparing a frame-header plus frame in xdata memory
+and transferring both to the ASIC side via the SFRs. The ASIC will transmit
+packets if bit 0 of RTL837X_REG_TX_CTRL	(0x7860) is set.
+
+```
+SS 07 00 00 LL LH 00 00 
+SS:	8-bit sequence number
+07:	Enables header and TCP checksum offloading to ASIC
+LHLL:	Length of the Ethernet frame
+```
+The Ethernet frame data starts immediately after the frame header in xdata
+memory. The frame is transferred to the ASIC side by setting SFRs B3 and B4
+to the xdata source address of the frame header, and the ring pointer to the
+free space indicated by register 0x7890 multiplied by 8 and the MSB set.
+The length is given by the length of the frame plus 15, divided by 8.
+
+Writing 0x1 to register 0x7850 will transmit the frame. The Ethernet frame
+checksum and the TCP checksum are automatically calculated (offloaded) by the
+ASIC before transmitting on the wire.
+
+
+## The RTL tag words
+
+The frame header uses the Realtek Remote Control Protocol (RRCP) format or
+the like.
+
+The `flags` word:
+
+```
+bit15 EFID_EN | 14:12 EFID | 11 PRI_EN | 10:8 PRI |
+bit7  KEEP    | 6 VSEL     | 5 LEARN_DIS         | 4:0 VIDX
+```
+
+All fields are in network byte order.
+
+* `EFID_EN`, `EFID`: look the destination up under this filtering ID
+  instead of the port's own
+* `PRI_EN`, `PRI`: force the given priority on the frame
+* `KEEP`: keep the 802.1Q tagging of the frame exactly as injected,
+  bypassing the egress tagging rules of the port
+* `VSEL`, `VIDX`: classify the frame into the VLAN at this index of the
+  VLAN table
+* `LEARN_DIS`: do not learn the source address from this frame
+
+The `pmask` word: bit 15 is `ALLOW`, bits 14 to 0 are a port mask.
+
+* `ALLOW` clear: the mask is the egress set, the frame goes to exactly
+  the ports given
+* `ALLOW` set: the ASIC looks the destination up as usual and the mask
+  only limits which ports the result may use

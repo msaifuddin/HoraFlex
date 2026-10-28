@@ -1,0 +1,101 @@
+# VLAN
+
+The RTL827x provides support for up to 4096 802.1Q VLANs, each port can be
+assigend a PVID.
+
+## VLAN control
+VLANs are controlled by the VLAN table. Configuration of entries is done as
+for the L2 entries, apart from that the ASIC does not add entries by itself.
+
+Adding a VLAN entry is done by setting:
+
+```
+RTL837x_TBL_DATA_IN_A = 02 0v vv vv
+```
+where 0x02 designates a valid entry and vvvvv is a 20bit field made of lower 10bits designating whether a
+port is a member of a VLAN. The higher 10 bits are '0' for tagged ports
+and '1' for untagged ports (the bit-logic definition is `v = (~members) ^ tagged ^
+members`). Ports are numbered 0-9, 9 being the CPU-port. Note that for
+the RTL8372 devices, the ports are not in their physical order.
+
+Once RTL837x_TBL_DATA_IN_A is set, the entry is added to the table by:
+
+```
+RTL837X_TBL_CTRL = 0V VV TT CC
+CC: TBL_WRITE | TBL_EXECUTE
+VVV: VLAN-Id
+TT: 0x02 (TBL_VLAN)
+CC: 0x03 (TBL_WRITE | TBL_EXECUTE)
+```
+The ASIC will clear bit 0 once the entry has been added.
+
+An entry is deleted by adding an invalid entry (00 instead of 0x02 in
+RTL837x_TBL_DATA_IN_A).
+
+A port is assigned a PVID by setting the PVID-bits of the corresponding
+register of the port. 2 ports share a register. An odd port uses bits [23:12],
+an even port uses bits [11:0].  The base register is
+RTL837x_PVID_BASE_REG (0x4e1c) and the registers go to 0x4e2c so that also
+the CPU-Port may have a PVID.
+
+Register RTL837x_REG_INGRESS (0x4e10) allows to define the ingress rules of
+a port. 2 bits define a rule and bits 0-19 are being used. A value of 00
+defines no filtering, 01 (0x01) allows only tagged packets, while 10 (0x02)
+allows only untagged packets to enter a port.
+
+Register RTL837X_VLAN_PORT_IGR_FLTR (0x4e18) enables or disables ingres VLAN
+filtering, each bit corresponds to given port (port0 -> bit0, port9 -> bit9).
+When enabled, incomming package's vlan tag is checked against VLAN membership
+on given port. When package contains VLAN not in member list, package is dropped.
+
+The default PVID on all port is 1, ingress VLAN filtering is enabled and all types of
+frames are accepted on input on all ports.
+
+By default, the ports transmit Ethernet frames with Realtek's proprietary
+tag format. By setting bit 6 (0x40) of the respective port configuration
+registers 0x1238, 0x1338, ...
+
+## VLAN API
+The code currently provides the following functions:
+```
+void port_pvid_set(uint8_t port, __xdata uint16_t pvid) __banked;
+uint16_t port_pvid_get(uint8_t port) __banked;
+void vlan_create(void) __banked;   // reads from global vlan_settings
+int8_t vlan_get(register uint16_t vlan) __banked;  // returns data in sfr_data
+void vlan_delete(uint16_t vlan) __banked;
+
+```
+
+# VLAN configuration on the Serial Console
+For testing the following commands are provided on the serial console:
+```
+vlan <VLAN-ID> p[t]...
+  create or set vlan with given ID and the list of ports as members, a `t`
+  behind a port defines the port as a tagged member.
+
+vlan <VLAN-ID> d
+  deletes the VLAN
+
+vlan show
+  Dumps the current ingress vlan settings.
+
+vlan <VLAN-ID> mgmt
+  Restricts network access to the switch (web UI, syslog) to the given
+  VLAN. Use `vlan 0 mgmt` to disable the filter. Default is `vlan 1 mgmt`.
+  Warning: setting this to an unreachable VLAN locks out the web UI;
+  recovery requires serial console.
+
+pvid <port> <VLAN-ID>
+  assigns PVID to a port. ports are numbered as on the casing
+
+ingress [p]<t|u|a>...
+  Allows ingress packages on port `p` only when `t`agged, `u`ntagged or `a`ny.
+  Multiple ports can be given at once as in vlan. When `p` is missing, all ports
+  are assigned the same mode. CPU port can not be changed.
+
+  Use `vlan show` to see current configuration.
+
+  Example:
+  `ingress 1t 2a` -> Set port 1 as tagged input only, set port 2 accepting any frames.
+  `ingress a` -> Set all ports to accept both tagged and untagged frames (default behaviour).
+```
