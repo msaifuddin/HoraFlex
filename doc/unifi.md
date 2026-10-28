@@ -28,23 +28,28 @@ in particular, are not reported and keep their VLAN membership when the controll
 
 ## Use
 
-The agent is idle until it is given a controller:
+The agent starts by itself once the startup configuration has run. Until it is adopted it informs
+the network's gateway, which is the controller on UniFi gateways (UCG, UDM, UXG). Console and
+startup-configuration commands:
 
 ```
-unifi controller 192.168.1.1 [8080]   start informing this controller
-unifi uplink 1                        protect UniFi port 1 as the uplink (default: auto)
-unifi                                  status
-unifi off | on                         stop / resume informing
+unifi                                  status (on the serial console and syslog)
+unifi controller 192.168.1.10 [8080]   use this controller instead of the gateway
+unifi controller auto                  back to the gateway
+unifi uplink 1                         always protect UniFi port 1 (default: the port the controller is reached through)
+unifi off | on                         stop / resume informing; "unifi off" in the configuration keeps it off
 unifi forget                           drop the adoption and reset the five ports
 unifi discovery on|off                 UDP discovery broadcasts (default off, see below)
 ```
 
-Put the commands in the configuration to keep them across reboots. While they are only entered at
-the console, a power cycle returns the switch to plain RTLPlayground. Command output goes to the
-serial console and syslog.
+Adopt the device in the controller. `set-inform` over SSH is not supported.
 
-Then adopt the device in the controller. The switch must reach the controller by IP;
-`set-inform` over SSH is not supported.
+The release configuration takes an address by DHCP. The static address configured before `ip dhcp`
+is the fallback: without a lease after 60 s the switch uses it, and asks again every minute. DHCP
+requests are sent from 0.0.0.0.
+
+Holding the reset button for more than 10 seconds (where the board defines one) restores the default
+configuration and also clears the UniFi adoption, keeping the GCM nonce epoch.
 
 ## What works
 

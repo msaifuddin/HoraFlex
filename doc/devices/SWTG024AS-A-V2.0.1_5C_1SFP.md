@@ -14,7 +14,7 @@ Seen on a unit with stock firmware V200.1.10 (installed with the OEM web upgrade
 - Factory MAC at 0x1FC000 (factory data up to about 0x1FEA68); the board file reads it there.
 - Vendor web logo at 0x1F9000; 0x101000-0x1F8FFF blank after installation.
 - Front ports 1-5 are logical 4, 5, 6, 7, 3; amber LED for 10/100/1000, green for 2.5G.
-- The reset hole is on the back next to the power input.
+- The reset hole is on the back next to the power input and pulls GPIO48 low while pressed.
 
 ### Label specifications
 
