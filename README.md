@@ -1,393 +1,161 @@
-# RTLPlayground
-A Playground for Firmware development for advanced user of RTL8372/RTL8373 based 2.5GBit Switches.
+# HoraFlex
 
-For each hardware configuration of these devices, there is usually a managed and an
-unmanaged version sold, with mostly identical hardware. The aim is to provide management
-features also for unmanaged devices with additional features such as Management VLAN,
-DHCP servers, multi-language support, IPv6 and TLS-encrypted web-pages. At present, however
-only the following features are provided:
-- A modern web-interface with mouse-over to display further information
-- A serial console interface to configure all features
-- IGMP to configure Multicast streaming
-- Port configuration showing detailed information about own and Link-partner advertised
-  Speed settings and configuration of these settings on the local side
-- Per-port configuration of frame sizes (MTUs) for Jumbo-Frame support or limiting MTUs
-  for particular devices
-- EEE (Energy Efficient Ethernet) can be configured per-port. Detailed information is
-  provided for support offered by the link partner and the EEE status of a port.
-- VLAN configuration
-- SFP information is displayed on the inserted modules, the current sensor values such as
-  temperatures, RX and TX power are displayed in the CLI and as mouse-over on the web
-- Mirror configuration
-- Link Aggregation Groups can be set up
-- Detailed information on port packet statistics
-- Configuration saved to flash via the web-interface
-- Firmware updates via the web
-- Installation as a firmware upgrade from the original web-interface
+Horaco HC-SWTGW215AS as a UniFi Switch Flex Mini 2.5G.
 
-<img width="1673" height="977" alt="GUI" src="doc/images/gui.png" />
+Firmware that lets a UniFi Network controller adopt and manage a Horaco HC-SWTGW215AS
+(5 x 2.5GbE RJ45 + 1 x 10G SFP+) as a **USW-Flex-2.5G-5** (Switch Flex Mini 2.5G).
 
-While the firmware provides already considerable improvements over the original managed firmware,
-the firmware still lacks support for the proprietary loop prevention
-protocols as well as DHCP. Spanning Tree is available (see doc/stp.md), but is
-a simplified implementation - read that document before enabling it on a
-switch you administer over the network. If you need these features, do not install the playground on your managed
-devices. In any case, installation is strongly discouraged unless you can at least make
-a backup of the original flash content via a SOIC clamp such as also used for BIOS
-backups and can re-install that firmware in case something is wrong. For this no soldering
-skills are necessary.
+The HC-SWTGW215AS uses the same class of Realtek RTL8372 switch chip as small 2.5G switches
+in general and costs a fraction of the UniFi model. This project replaces its stock firmware with
+[RTLPlayground](https://github.com/logicog/RTLPlayground), an open-source firmware for RTL837x
+switches, and adds a UniFi device agent that runs on the switch's own 8051 CPU. The agent
+implements the device side of the UniFi inform protocol: discovery by the controller, adoption,
+AES-GCM encrypted informs, and applying the port and VLAN configuration the controller sends.
+No extra hardware, Raspberry Pi or helper service is needed.
 
-The firmware supports all hardware features of devices with
-- 4 2.5GBit ports + 2 SFP+ ports
-- 5 2.5GBIT + 1 SFP+ port
-- 8 2.5GBit + 1 SFP+ port
-Devices sold usually have a fairly common design, however there may be differences in the LED
-configuration (switches have LEDs with different colours and use types of LEDs). The list
-of tested devices can be found in [Supported devices](doc/supported_devices.md).
+> Not affiliated with or endorsed by Ubiquiti or Horaco. UniFi is a trademark of Ubiquiti Inc.
+> The UniFi device protocol is undocumented; this implementation follows observed controller
+> behaviour. Replacing switch firmware can make the device unusable; without a SOIC-8 clip and SPI
+> programmer a switch that does not boot cannot be recovered.
 
-To do meaningful development you will need to use a serial console, so soldering skills
-are required. Flashing must be done via a SOIC-8 PatchClamp or by soldering a socket
-for the flash chip.
+## What works
 
-If you don't want to open your device, you can use the project's code to learn about the
-devices by looking at the image using e.g. Ghidra. If you want to contribute to the
-design of the web-interface or get a feeling for the interface first, a standalone
-device simulator is provided, which runs entirely under Linux as a local webserver.
+Tested on one HC-SWTGW215AS (stock firmware V200.1.10) with a UniFi Cloud Gateway Ultra running
+UniFi Network 10.6.109:
 
-## (0) Compiling Requirements
+| Feature | Status |
+|---|---|
+| Shows as Pending Adoption, adopts, stays online (AES-GCM) | tested |
+| Port enable / disable | tested (link goes down and up) |
+| Native VLAN, blocked tagged VLANs, port profile changes | tested |
+| Tagged VLANs | tested in the switch's VLAN table; not checked with a packet capture |
+| Port names | tested |
+| Reboot and firmware update without re-adoption | tested |
+| Forget / remove in UniFi (ports return to a plain switch) | tested |
+| Link state, speed and packet counters per port | tested |
+| 2.5G links, SFP+ port | not tested (the SFP+ is not shown in UniFi and keeps forwarding on VLAN 1) |
+| Byte counters, client lists, LLDP topology, PoE | not provided |
+| Management VLAN other than 1 | not supported |
 
-Install the following particular build requisites (Debian 12/13):
-```
-sudo apt install make gcc g++ bison flex libboost-dev patch bzip2 curl xxd python-is-python3 libjson-c-dev zlib1g-dev
-```
+Other controllers (UniFi OS consoles, self-hosted Network application) and other Network versions
+may work but are untested. Other RTL8372/8373 switches supported by RTLPlayground may work with a
+different `MACHINE`, but only this model has been tried.
 
-The first `make` downloads SDCC 4.6.0, applies the fixes in `sdcc/` and builds it into
-`toolchain/`, which takes a few minutes. Later builds reuse it. The released SDCC 4.5.0
-and 4.6.0 miscompile parts of this code, see [SDCC bug #4153](https://sourceforge.net/p/sdcc/bugs/4153/)
-and [#4154](https://sourceforge.net/p/sdcc/bugs/4154/); both fixes are in SDCC trunk since
-r17039. The third patch is for [#4070](https://sourceforge.net/p/sdcc/bugs/4070/), where the
-assembler drops the top byte of a `__sfr32` address list; it is proposed upstream and lets
-`SFR_DATA_U32` be used again. To use an SDCC you installed yourself instead, run `make CC=sdcc ...`.
+## Port mapping
 
-<details>
-<summary>If using Docker (click to expand)</summary>
+UniFi ports 1-5 are the front-panel RJ45 ports 1-5 (left to right). The SFP+ cage is not reported
+to UniFi.
 
-### Prerequisites
+## Installation
 
-Install Docker for your platform:
+You need a computer with a wired Ethernet port and the files from the
+[latest release](../../releases/latest):
 
-- **Linux (Debian/Ubuntu)**: `sudo apt install docker.io` then `sudo usermod -aG docker $USER` (log out and back in)
-- **Linux (other distros)**: Follow the [Docker Engine install guide](https://docs.docker.com/engine/install/)
-- **Windows**: Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
-- **macOS**: Install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/)
+- `...-oem-upgrade.bin` for a switch still on its stock firmware
+- `...-SWTG024AS_A_2_0_1_5C_1SFP.bin` for a switch already running RTLPlayground
+- `SHA256SUMS` to check the downloads
 
-### Usage
+### 1. Install on a switch with stock firmware
 
-A Dockerfile is provided for a reproducible build environment:
+1. Connect the computer directly to any RJ45 port of the switch and give the computer a fixed
+   address in the switch's network, for example `192.168.2.2`, netmask `255.255.255.0`:
+   - Windows: Settings > Network > Ethernet > IP assignment > Edit > Manual > IPv4.
+   - macOS: System Settings > Network > (the Ethernet adapter) > Details > TCP/IP > Configure IPv4: Manually.
+2. Open `http://192.168.2.1` and log in to the stock web interface (default `admin` / `admin`).
+   Note the firmware version under System; this was tested with V200.1.10.
+3. Open System > Firmware Upgrade, confirm, and upload the **`-oem-upgrade.bin`** file. Do not upload
+   the other `.bin` to the stock firmware.
+4. Wait at least 5 minutes and do not power off the switch. It reboots into the new firmware.
+5. Open `http://192.168.2.1` again. The new login page asks only for a password: `1234`.
+
+### 2. Put the switch on your network
+
+In the web interface open System > Startup configuration, set an address in your
+LAN that is outside your DHCP range, and save:
 
 ```
-docker build -t rtlplayground-dev .
+ip 192.168.1.240
+gw 192.168.1.1
+netmask 255.255.255.0
+passwd <a new password>
 ```
 
-Build the firmware (replace MACHINE with your target, e.g. `DEFAULT_8C_1SFP`):
+Reboot the switch (System > Reboot switch), move the computer back to your normal network, and connect one
+switch port to your LAN. The switch is now at the address you set.
+
+A static address is recommended: with `ip dhcp` the switch sends its DHCP request from its old
+address, which some routers (including UniFi gateways) drop.
+
+### 3. Adopt it in UniFi
+
+1. Add two lines to the startup configuration, using your controller's address, and save:
+
+   ```
+   unifi uplink 1
+   unifi controller 192.168.1.1
+   ```
+
+   `unifi uplink 1` protects the port that connects to your LAN (use that port's number): the switch
+   refuses any controller setting that would disable it or remove VLAN 1 from it.
+2. Reboot the switch. Within about 30 seconds it appears in UniFi Network > Devices as
+   **USW Flex 2.5G 5**, pending adoption.
+3. Click Adopt. After adoption, manage ports and VLANs from UniFi as usual.
+
+## Everyday tasks
+
+| Task | How |
+|---|---|
+| Update the firmware | Web interface > Firmware: upload the new `...-SWTG024AS_A_2_0_1_5C_1SFP.bin`. Adoption and settings are kept. |
+| Check the UniFi status | System > Console: `unifi` (output goes to the serial console and syslog) |
+| See the log | Set `syslog ip <computer>` and `syslog on` in the configuration and run a syslog receiver |
+| Stop UniFi management | Remove the `unifi controller` line from the configuration and reboot |
+| Return to a plain switch | Remove the device in UniFi (resets the ports), then remove the `unifi controller` line |
+| Back up the switch's flash | See [doc/unifi.md](doc/unifi.md#flash-backup-without-a-programmer) |
+
+Going back to the stock Horaco firmware needs a SPI programmer and a backup of the original flash.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Device never appears in UniFi | The switch must reach the controller on TCP 8080. Check the `unifi controller` address and `gw`. |
+| Adoption fails / "Adopt failed" | Make sure `unifi discovery on` is not set: with discovery broadcasts the controller tries SSH adoption, which this switch does not have. Remove the device in UniFi and adopt again. |
+| Settings from UniFi are not applied | Run `unifi`: "Config error" and "apply error" give the reason; error 9 means the change would have cut off the uplink port. |
+| Web interface unreachable after a change | Power-cycle the switch; if the address was changed, the switch uses the saved configuration. |
+
+## How it works
+
+The agent (`unifi/`) informs the controller over HTTP every 10 seconds. Before adoption it uses
+AES-128-CBC with UniFi's default key; the adoption response carries the device key, which is stored in
+flash, and from then on all messages use AES-128-GCM. Port and VLAN settings arrive as `system_cfg`
+properties; they are applied only from messages whose GCM tag verified, and the whole configuration is
+rejected if any part of it is invalid. The applied configuration and its version are kept in flash and
+applied again at boot. Details, build options and limits: [doc/unifi.md](doc/unifi.md).
+
+## Building
+
+See [RTLPlayground.md](RTLPlayground.md) for the toolchain (Debian or Docker); the first build compiles
+the patched SDCC it needs. Then:
 
 ```
-docker run --rm -v $(pwd):/workspace rtlplayground-dev make MACHINE=DEFAULT_8C_1SFP
+make MACHINE=SWTG024AS_A_2_0_1_5C_1SFP UNIFI_MODEL=USWED35 UNIFI_VERSION=2.1.8.971
+make -C installer        # OEM upgrade image
+make -C unifi/test       # host unit tests
+unifi/release/build.sh   # both images and SHA256SUMS in release/
 ```
 
-The resulting `.bin` file appears in `output/` on your host.
+macOS without Docker: [tools/macos/README.md](tools/macos/README.md).
 
-Build the OEM web upgrade bin (after building the firmware bin)
+## Credits
 
-```
-docker run --rm -v $(pwd):/workspace rtlplayground-dev make -C installer
-```
+- [RTLPlayground](https://github.com/logicog/RTLPlayground) (MIT License) by the RTLPlayground
+  contributors: the switch firmware this project builds on. Its documentation is in
+  [RTLPlayground.md](RTLPlayground.md) and [doc/](doc/).
+- [unifi-stubd](https://github.com/konstruktor1/unifi-stubd) (AGPL-3.0): used as the protocol
+  reference and to generate test vectors. No unifi-stubd code is included in the firmware.
+- The board support for this switch comes from RTLPlayground issue #277 and its contributors.
 
-The resulting `rtlplayground_oem_upgrade.bin` file appears in `installer/output/` on your host.
+## License
 
-Build host tools only:
-
-```
-docker run --rm -v $(pwd):/workspace rtlplayground-dev make -C tools
-```
-
-Run the web-interface simulator locally:
-
-```
-docker run --rm -p 8080:8080 -v $(pwd):/workspace rtlplayground-dev \
-  tools/output/httpd_sim /workspace/html
-```
-
-Edit `config.txt` on your host, then re-run `make` — the
-source directory is mounted into the container, so changes take effect
-immediately. To build for a different machine, pass `MACHINE=<name>`, which
-selects `machine/<name>.c` (see [Adding a new device](doc/adding-a-device.md)).
-
-</details>
-
-## (1) Compiling for direct chip flashing AND upgrading an existing RTLPlayground running device
-
-Pass the machine that matches your device, for example:
-```
-make MACHINE=DEFAULT_8C_1SFP
-```
-The name selects the board definition `machine/<name>.c`; `make` without a
-`MACHINE` value stops with an error listing what is expected. If your board is
-not in the list yet, see [Adding a new device](doc/adding-a-device.md).
-
-To embed a machine-specific startup configuration, pass `CONFIG`:
-```
-make MACHINE=DEFAULT_8C_1SFP CONFIG=configs/DEFAULT_8C_1SFP.txt
-```
-`CONFIG` defaults to `config.txt`; the selected file is embedded in the image
-and changing it triggers a rebuild.
-
-> [!TIP]
-> You can write configuration parameters in config.txt (see below) in order your switch to get
-> straight at the first boot, a correct IP configuration.
-
-Now, building the firmware image should work.
-
-Note, that the image generated ends in .bin, not .img, in order to make IMSProg happy.
-
-image location is stored in `RTLPlayground/output/rtlplayground_version_machine.bin`
-for example
-```
-rtlplayground-v0.1.0-12c98ba-dirty-LIANGUO_ZX_SWTGW215AS.bin
-```
-
-> [!CAUTION]
-> This image can be flashed directly to the chip OR through the firmware update/upgrade
-> interface of RTLPlayground interface
-
-## (2) Compiling for OEM running device with management options (web upgrade)
-
-Managed switches can be updated from the existing original firmware using a SPECIFIC upgrade image.
-You first need to build the firmware for direct chip flashing : See below (1)
-
-Then
-
-```
-cd installer
-make 
-```
-image location is stored in  `RTLPlayground/installer/output/rtlplayground_oem_upgrade.bin`
-
-> [!CAUTION]
-> This image must ONLY be used for original OEM firmware web interface firmware upgrade.
-> You do not need this image if you are already on RTLplayground firmware.
-> Unless you go back to the original OEM firmware, you would only flash this specific firmware
-> only once. Future upgrades of RTLPlayground will only need to follow (1)
-
-example of compilation console output
-
-```
-RTLPlayground/installer$ make
-mkdir -p output
-gcc updatebuilder.c -o output/updatebuilder
-../toolchain/sdcc-3390765201/bin/sdas8051 -plosgff -o output/crtstart.rel crtstart.asm
-../toolchain/sdcc-3390765201/bin/sdcc -mmcs51 --code-loc 0x1000 -o output/installer.rel -c installer.c
-../toolchain/sdcc-3390765201/bin/sdcc -mmcs51 -Wl-bHOME=0x1100 -Wl-r -o output/rtlinstaller.ihx output/crtstart.rel output/installer.rel
-./output/updatebuilder -i output/rtlinstaller.ihx -o output/rtlplayground_oem_upgrade.bin ../output/rtlplayground.bin
-Input file size: 524288
-Bytes read: 524288
-EOF
-Payload sum 1 is: 0x25100
-Payload sum 2 is: 0x25100
-Payload sum with header is: 0x264ec
-Payload sum is: 0xf8fe94
-Header checksum is: 0x5a1
-```
-
-## (3) Sandbox Usage with Ghidra (optional)
-
-You can play with the image using ghidra or flash real Switch Hardware. For
-ghidra see this information about [Ghidra images](doc/ghidra.md).
-
-## (4) Installation through the Web interface (software way)
-
-Managed switches (OEM firmware of RTLplayground firmware) can be upgraded via the web interface.
-Unmanaged switch cannot be flashed this way (see 5).
-
-Go to "Firmware update" tab, select the correct file.
-
-> [!IMPORTANT]
-> If your device already runs RTLPlayground, you must upload the binary file /RTLPlayground/output/rtlplayground_Version_Machine.bin
-> If your device is OEM, you must upload the binary file /RTLPlayground/installer/output/rtlplayground_oem_upgrade.bin
-
-> [!CAUTION]
-> Check one more time that your device matches the machine type before flashing.
-> Be sure you have a backup of the original firmware before diving in RTLPlayground.
-
-Finally, push the Upload File Button and you're done !
-
-
-## (5) Flashing the ROM directly (hardware way, but also only way to rescue)
-
-This procedure is the only way to flash unmanaged switches, if the ROM chip is large enough.
-This is also the only way to unbrick your device if something went wrong.
-
-> [!IMPORTANT]
-> You need a SOIC-8 clip to flash the ROM chip directly onboard.
-> Alternatively you can de-solder the flash chip and install a SOIC adapter).
-> For flashing the chip directly, you must use the binary file /RTLPlayground/output/rtlplayground_Version_Machine.bin
-
-> [!CAUTION]
-> As you need to open your switch case, consider that the warranty is gone.
-
-- Disconnect power from switch.
-- Open the switch.
-- Attach the clip onto the flash chip (Red line on Pin 1, Pin 1 has a point marker).
-- Connect USB of flash programmer, the power LED on the switch will light up, check cabling if not.
-- Don't panic, mixing up GND and 3.3V usually does not destroy the switch.
-- Use IMSProg, Flashrom, or whatever Programmer to detect the chip.
-- MAKE A BACKUP (DUMP) OF THE EXISTING FIRMWARE !
-- ERASE THE ROM (BLANK) !
-- Load the firmware into IMSProg.
-- Flash is to the ROM chip.
-- Disconnect the clip from the ROM chip.
-- You're done, ready for the first boot.
-
-## (6) Connecting a serial interface (optional)
-
-You can connect a serial cable to the UART port found on all the devices, set 8N1 @ 115200 baud.
-
-## (7) Power Up
-
-When you power up the switch, the device will perform some examples and provide a minimal console
-(if wired to a serial interface), the documentation of which can be found in the source code rtlplayground.c`.
-
-## (8) The web-interface
-
-The web-interface can be reached under the [default 192.168.10.247](http://192.168.10.247) unless you
-specified an IP address in the config.txt before compilation.
-
-> [!TIP]
-> The default password is `1234`.
-
-## (9) The command line
-
-The command line is very rudimentary and mostly for testing purposes.
-The following is a boot-log with some examples:
-```
-Detecting CPU
-RTL8373 detected
-Starting up...
-  Flash controller
-
-NIC reset
-rtl8372_init called
-
-RTL837X_REG_SDS_MODES: 0x00000bed
-
-phy_config_8224 called
-
-phy_config_8224 done
-
-rtl8224_phy_enable called
-
-rtl8224_phy_enable done
-
-rtl8372_init done
-
-A minimal prompt to explore the RTL8372:
-
-CPU detected: RTL8373
-Clock register: 0x00001101
-Register 0x7b20/RTL837X_REG_SDS_MODES: 0x00000bed
-Verifying PHY settings:
-
- Port   State   Link    TxGood          TxBad           RxGood          RxBad
-1       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-2       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-3       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-4       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-5       On      2.5G    0x00000008      0x00000000      0x00000000      0x00000000
-6       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-7       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-8       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-9       NO SFP  Down    0x00000000      0x00000000      0x00000000      0x00000000
-
-> port 5 1g
-  CMD: port 5 1g
-PORT 04 1G
-
-> stat
-  CMD: stat
- Port   State   Link    TxGood          TxBad           RxGood          RxBad
-1       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-2       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-3       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-4       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-5       On      1000M   0x00000035      0x00000000      0x00000017      0x00000000
-6       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-7       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-8       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-9       NO SFP  Down    0x00000000      0x00000000      0x00000000      0x00000000
-
->
-<SFP-RX OK>
-
-<MODULE INSERTED>  Rate: 67  Encoding: 01
-Lightron Inc.   WSPXG-ES3LC-IHA 0000
-
-> stat
-  CMD: stat
- Port   State   Link    TxGood          TxBad           RxGood          RxBad
-1       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-2       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-3       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-4       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-5       On      1000M   0x00000065      0x00000000      0x0000003b      0x00000000
-6       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-7       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-8       On      Down    0x00000000      0x00000000      0x00000000      0x00000000
-9       SFP OK  10G     0x00000000      0x00000000      0x0000001c      0x00000000
-
-> sfp
-  CMD: sfp
-Rate: 67  Encoding: 01
-Lightron Inc.   WSPXG-ES3LC-IHA 0000
-```
-
-## (10) Advanced configuration
-
-You can configure more deeply the switch without the need of the console mode.
-
-While in compilation part, you might write directly to config.txt file before making the binary firmware
-
-```
-nano config.txt
-```
-
-If you want to modify settings after the flash is done, go to the System tab and find the Startup Configuration.
-
-<img width="1673" height="978" alt="ADVANCED SETTINGS" src="doc/images/advanced_settings.png" />
-
-```
-ip xxx.xxx.xxx.xxx      = IP address of the switch
-gw yyy.yyy.yyy.yyy      = IP address of the gateway
-netmask zzz.zzz.zzz.zzz = Network mask of the switch 
-port x name xxx         = Name xxx the port number x
-port z 1g               = Set 1g speed for port z
-igmp on/off             = Turn IGMP on or off
-session xxxx            = Web session timeout in seconds (default 200)
-```
-[To be continue]
-
-Enjoy playing!
-
-## (11) Other documents
-
-The following documents give further documentation on specific features of the RTL837x SoCs:
-- [Adding a new device](doc/adding-a-device.md)
-- [RTL8372/3 Feature support](doc/hardware.md)
-- [CPU Port](doc/CpuPort.md)
-- [L2 learning](doc/l2.md) 
-- [IGMP (IP-MC streaming)](doc/igmp.md)
-- [SFP+ ports](doc/sfp.md) 
-- [Trunking aka. port aggregation](doc/link_aggregation.md)
-- [LACP (802.3ad link aggregation)](doc/lacp.md)
-- [VLAN](doc/vlan.md)
-- [Storm control](doc/storm_control.md)
-- [Modifications and Flash replacement](doc/mods.md)
+MIT, see [LICENSE](LICENSE). RTLPlayground, which this firmware is built on, is also MIT licensed; its
+license and copyright notice are in [LICENSE.RTLPlayground](LICENSE.RTLPlayground).

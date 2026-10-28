@@ -6,6 +6,16 @@ It is highly similar to SWTG024AS-V2.0, with the only difference being the GPIO 
 |---|---|---|---|---|---|
 | Horaco | HC-SWTGW215AS |  | PCB-SWTG024AS-A-V2.0.1_19650 | W25Q16JV | 8272N |
 
+### Horaco HC-SWTGW215AS notes
+
+Seen on a unit with stock firmware V200.1.10 (installed with the OEM web upgrade image):
+
+- Flash JEDEC ID EF 40 15 (Winbond W25Q16, 2 MiB).
+- Factory MAC at 0x1FC000 (factory data up to about 0x1FEA68); the board file reads it there.
+- Vendor web logo at 0x1F9000; 0x101000-0x1F8FFF blank after installation.
+- Front ports 1-5 are logical 4, 5, 6, 7, 3; amber LED for 10/100/1000, green for 2.5G.
+- The reset hole is on the back next to the power input.
+
 ### Label specifications
 
 - **Name**: 
