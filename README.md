@@ -1,5 +1,8 @@
 # HoraFlex
 
+<p align="center"><img src="doc/images/horaflex/horaflex.png" alt="Imagined HoraFlex-branded switch" width="480"></p>
+<p align="center"><sub>Not a real product. The actual switch is shown under <a href="#the-hardware">The hardware</a>.</sub></p>
+
 Horaco HC-SWTGW215AS as a UniFi Switch Flex Mini 2.5G.
 
 Firmware that lets a UniFi Network controller adopt and manage a Horaco HC-SWTGW215AS
