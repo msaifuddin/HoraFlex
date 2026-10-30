@@ -56,6 +56,16 @@ The USW-Flex-2.5G-5 needs UniFi Network 8.6.9 or newer.
 
 ### Screenshots
 
+Adopted in UniFi Network (UCG Ultra, Network 10.6), listed next to the gateway:
+
+<p align="center"><img src="doc/images/horaflex/unifi-devices.png" alt="UniFi Devices list with the switch online" width="800"></p>
+
+<p align="center">
+<img src="doc/images/horaflex/unifi-device.png" alt="UniFi device panel for the switch" width="300">
+&nbsp;
+<img src="doc/images/horaflex/unifi-topology.png" alt="UniFi infrastructure map with the switch under the gateway" width="500">
+</p>
+
 The switch's own web page after installing:
 
 <p align="center"><img src="doc/images/horaflex/ui-dash.png" alt="Status page" width="640"></p>
